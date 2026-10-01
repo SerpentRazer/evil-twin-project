@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evil-twin // operator console</title>
+<style>
+  :root{
+    --bg:#04070a; --panel:#080e0c; --line:#0d3b2b; --line2:#0a5f43;
+    --grn:#00ff9c; --grn-dim:#1c8f6a; --amber:#ffb000; --red:#ff4d5e;
+    --cyan:#39d0ff; --muted:#4f7a6b; --text:#c7ffe9; --glow:0 0 6px rgba(0,255,156,.55);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{ background:radial-gradient(1200px 700px at 50% -20%, #06120d 0%, var(--bg) 60%), var(--bg);
+    color:var(--text); font:13.5px/1.55 ui-monospace,"JetBrains Mono","Fira Code",Menlo,Consolas,monospace;
+    padding:16px; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  body::before{ content:""; position:fixed; inset:0; pointer-events:none; z-index:9;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,20,12,.35) 2px 3px);
+    mix-blend-mode:overlay; opacity:.5; }
+  .glow{ text-shadow:var(--glow); }
+  a{ color:var(--cyan); text-decoration:none; }
+
+  header{ border:1px solid var(--line2); border-radius:10px; padding:11px 16px;
+    background:linear-gradient(180deg,rgba(0,255,156,.05),transparent);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+  .prompt{ font-size:15px; color:var(--grn); text-shadow:var(--glow); white-space:nowrap; }
+  .prompt .u{ color:var(--cyan); } .prompt .p{ color:var(--muted); }
+  .cursor{ display:inline-block; width:9px; height:15px; background:var(--grn);
+    box-shadow:var(--glow); animation:blink 1s steps(1) infinite; vertical-align:-2px; }
+  @keyframes blink{ 50%{ opacity:0; } }
+  .spacer{ flex:1; }
+  .mode{ border:1px solid var(--line2); border-radius:6px; padding:2px 10px; font-size:12px; color:var(--amber);
+    text-shadow:0 0 6px rgba(255,176,0,.4); }
+  .mode.live{ color:var(--red); border-color:#5a1620; }
+
+  /* status strip */
+  .strip{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .chip{ border:1px solid var(--line); border-radius:7px; padding:5px 11px; font-size:12px;
+    color:var(--muted); background:var(--panel); display:flex; align-items:center; gap:7px; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:#123; }
+  .chip.on{ color:var(--grn); border-color:var(--line2); }
+  .chip.on .dot{ background:var(--grn); box-shadow:0 0 8px var(--grn); }
+  .chip.busy .dot{ background:var(--amber); box-shadow:0 0 8px var(--amber); animation:blink 1s steps(1) infinite; }
+
+  .grid{ display:grid; grid-template-columns:1fr; gap:14px; flex:1 1 auto; min-height:0; }
+  @media(min-width:1050px){ .grid{ grid-template-columns:1.1fr .9fr; } }
+  header,.strip{ flex:none; }
+  .grid > .panel{ min-height:0; }
+  .panel{ border:1px solid var(--line); border-radius:10px; background:var(--panel); display:flex; flex-direction:column; }
+  .panel h2{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--grn);
+    margin:0; padding:10px 14px; border-bottom:1px solid var(--line); text-shadow:var(--glow);
+    display:flex; align-items:center; gap:10px; }
+  .panel h2 .n{ color:var(--muted); }
+  .body{ padding:12px 14px; display:flex; flex-direction:column; min-height:0; flex:1; }
+  .tscroll{ overflow-y:auto; min-height:0; flex:1; margin-top:12px; }
+
+  .btns{ display:flex; gap:9px; flex-wrap:wrap; }
+  button{ background:#07120d; color:var(--grn); border:1px solid var(--line2); border-radius:8px;
+    padding:8px 13px; cursor:pointer; font:inherit; text-shadow:var(--glow); }
+  button:hover{ background:rgba(0,255,156,.08); }
+  button:disabled{ opacity:.4; cursor:not-allowed; text-shadow:none; }
+  button.go{ border-color:#0a7d57; }
+  button.red{ color:var(--red); border-color:#5a1620; text-shadow:0 0 6px rgba(255,77,94,.4); }
+
+  /* recon table */
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  thead th{ position:sticky; top:0; background:var(--panel); z-index:1; }
+  th,td{ text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th{ color:var(--muted); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+  td.bssid{ color:var(--muted); font-size:11.5px; }
+  td.ssid{ color:var(--text); max-width:170px; overflow:hidden; text-overflow:ellipsis; }
+  .enc{ font-size:10.5px; border:1px solid var(--line2); border-radius:5px; padding:0 6px; color:var(--cyan); }
+  .enc.open{ color:var(--amber); border-color:#6b4a00; }
+  .pwr{ color:var(--grn); }
+  tr.sel{ background:rgba(0,255,156,.10); }
+  tr.sel td:first-child{ box-shadow:inset 3px 0 var(--grn); }
+  button.pick{ padding:3px 10px; font-size:11.5px; }
+  .empty{ color:var(--muted); padding:20px 4px; text-align:center; }
+
+  .target{ margin-top:12px; border:1px dashed var(--line2); border-radius:8px; padding:10px 12px; font-size:13px; }
+  .target.none{ color:var(--muted); border-style:dotted; }
+  .target b{ color:var(--grn); text-shadow:var(--glow); }
+
+  /* console */
+  .console{ background:#03060a; border-top:1px solid var(--line); padding:12px 14px; margin:0;
+    font-size:12.5px; line-height:1.5; min-height:0; overflow-y:auto; white-space:pre-wrap; word-break:break-word;
+    flex:1; }
+  .console .cap{ color:var(--red); text-shadow:0 0 6px rgba(255,77,94,.4); }
+  .console .live{ color:var(--grn); text-shadow:var(--glow); }
+  .console .tgt{ color:var(--amber); }
+  .console .warn{ color:var(--amber); }
+  .console .sc{ color:var(--cyan); }
+  .console .ts{ color:var(--grn-dim); }
+  .console::-webkit-scrollbar{ width:8px; } .console::-webkit-scrollbar-thumb{ background:var(--line2); border-radius:4px; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="prompt"><span class="u">root</span><span class="p">@</span>evil-twin<span class="p">:~#</span> ./c2 --console<span class="cursor"></span></div>
+    <div class="spacer"></div>
+    <a id="dashLink" href="/admin" target="_blank">capture dashboard ↗</a>
+    <span class="mode" id="mode">LIVE</span>
+  </header>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>▍recon — nearby access points <span class="n" id="apCount"></span></h2>
+      <div class="body">
+        <div class="btns">
+          <button class="go" id="scan">📡 enable monitor &amp; scan</button>
+          <button class="go" id="launch" disabled>▶ launch evil twin</button>
+          <button class="red" id="stop">⏹ stop all</button>
+        </div>
+        <div class="target none" id="target">no target selected — scan, then pick a network to impersonate.</div>
+        <div class="tscroll">
+          <table>
+            <thead><tr><th>BSSID</th><th>CH</th><th>PWR</th><th>ENC</th><th>SSID</th><th></th></tr></thead>
+            <tbody id="aps"><tr><td colspan="6" class="empty">no scan yet — hit “enable monitor &amp; scan”.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>▍live console <span class="n">— streamed script output</span></h2>
+      <pre class="console" id="console">idle. waiting for orders_</pre>
+    </div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => (s ?? "").toString().replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+  let selected = null, atBottom = true;
+
+  const CHIPS = [["monitor","MONITOR"],["scanning","SCAN"],["airbase","AIRBASE"],
+                 ["dnsmasq","DNSMASQ"],["portal","PORTAL"]];
+
+  async function poll() {
+    let s;
+    try { s = await (await fetch("/api/status", { cache:"no-store" })).json(); }
+    catch(e){ return; }
+
+    $("mode").textContent = s.mode;
+    $("mode").className = "mode" + (s.mode === "LIVE" ? " live" : "");
+
+    // status chips
+    $("strip").innerHTML = CHIPS.map(([k,label]) => {
+      const on = s[k], busy = (k === "scanning" && s.scanning);
+      return `<span class="chip ${busy?'busy':(on?'on':'')}"><span class="dot"></span>${label}</span>`;
+    }).join("") + `<span class="chip ${s.captures?'on':''}"><span class="dot"></span>CAPTURES ${s.captures}</span>`;
+
+    // target
+    if (s.target && s.target.ssid) {
+      $("target").className = "target";
+      $("target").innerHTML = `🎯 impersonating <b>${esc(s.target.ssid)}</b> · ch ${s.target.channel} · ${esc(s.target.enc)} · <span class="bssid">${esc(s.target.bssid)}</span>`;
+      $("launch").disabled = false;
+    }
+
+    // recon table
+    const aps = s.targets || [];
+    $("apCount").textContent = aps.length ? `(${aps.length})` : "";
+    if (aps.length) {
+      $("aps").innerHTML = aps.map(a => {
+        const sel = selected === a.bssid;
+        const open = a.enc === "OPEN" || a.enc === "OPN";
+        return `<tr class="${sel?'sel':''}">
+          <td class="bssid">${esc(a.bssid)}</td>
+          <td>${esc(a.channel ?? "?")}</td>
+          <td class="pwr">${a.power ?? "?"}</td>
+          <td><span class="enc ${open?'open':''}">${esc(a.enc || "?")}</span></td>
+          <td class="ssid" title="${esc(a.ssid)}">${esc(a.ssid)}</td>
+          <td><button class="pick" data-b="${esc(a.bssid)}">${sel?'✓ target':'🎯 impersonate'}</button></td>
+        </tr>`;
+      }).join("");
+      document.querySelectorAll(".pick").forEach(b => b.onclick = () => select(b.dataset.b));
+    }
+  }
+
+  async function select(bssid) {
+    const r = await (await fetch("/api/select", { method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({ bssid }) })).json();
+    if (r.ok) { selected = bssid; poll(); }
+  }
+  async function action(a) {
+    await fetch("/api/action", { method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({ action:a }) });
+    poll();
+  }
+
+  // colorize console lines
+  function colorize(line) {
+    const l = esc(line);
+    if (/\bCAPTURE\b/.test(line)) return `<span class="cap">${l}</span>`;
+    if (/LIVE on channel|portal armed|complete\. 🎣|credentials captured/.test(line)) return `<span class="live">${l}</span>`;
+    if (/🎯 target locked|impersonating/.test(line)) return `<span class="tgt">${l}</span>`;
+    if (/\[scan\]|CH\s+\d/.test(line)) return `<span class="sc">${l}</span>`;
+    if (/^\S+\s+!!|no target|warn/i.test(line)) return `<span class="warn">${l}</span>`;
+    return l;
+  }
+
+  async function pollLogs() {
+    let t;
+    try { t = await (await fetch("/api/logs", { cache:"no-store" })).text(); }
+    catch(e){ return; }
+    const el = $("console");
+    atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = (t || "idle.").split("\n").map(colorize).join("\n");
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+
+  $("scan").onclick   = () => action("scan");
+  $("launch").onclick = () => { if(!$("launch").disabled) action("launch"); };
+  $("stop").onclick   = () => action("stop");
+
+  // the capture dashboard is served by the portal on :80, not this ops port
+  $("dashLink").href = location.protocol + "//" + location.hostname + "/admin";
+
+  poll(); pollLogs();
+  setInterval(poll, 1500);
+  setInterval(pollLogs, 1000);
+</script>
+</body>
+</html>

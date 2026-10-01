@@ -1,0 +1,59 @@
+{
+  "MyHomeWiFi": {
+    "aa:9c:6c:a8:bb:03": {
+      "channel": 6,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        11.0,
+        6.0,
+        9.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": true,
+      "rssi_min": -62,
+      "rssi_max": -48
+    }
+  },
+  "Guest": {
+    "42:ed:00:8b:16:f0": {
+      "channel": 6,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        11.0
+      ],
+      "ht": true,
+      "rssi_min": -57,
+      "rssi_max": -51
+    },
+    "42:ed:00:8b:13:ca": {
+      "channel": 6,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        11.0
+      ],
+      "ht": true,
+      "rssi_min": -89,
+      "rssi_max": -76
+    }
+  }
+}

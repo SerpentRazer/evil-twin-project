@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Sign in to Wi-Fi</title>
+<style>
+  :root { --bg:#0b1220; --card:#111a2e; --line:#22304d; --text:#eaf0fb;
+          --muted:#8fa1c2; --accent:#3b82f6; --accent2:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:
+         radial-gradient(1200px 600px at 50% -10%, #16233f 0%, var(--bg) 60%);
+         color:var(--text); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { width:100%; max-width:400px; background:var(--card); border:1px solid var(--line);
+          border-radius:18px; padding:28px 24px 24px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .dot { width:34px; height:34px; border-radius:9px;
+         background:linear-gradient(135deg,var(--accent),#22d3ee); flex:0 0 auto; }
+  h1 { font-size:19px; margin:0; }
+  .sub { color:var(--muted); font-size:13.5px; margin:2px 0 20px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
+  input[type=email], input[type=password], input[type=text] {
+    width:100%; padding:12px 14px; border-radius:11px; border:1px solid var(--line);
+    background:#0c1526; color:var(--text); font-size:16px; outline:none; }
+  input:focus { border-color:var(--accent); }
+  .row { display:flex; align-items:center; gap:8px; margin:16px 0 4px; font-size:13px; color:var(--muted); }
+  button { width:100%; margin-top:18px; padding:13px; border:0; border-radius:12px; cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; font-size:16px; font-weight:600; }
+  button:active { transform:translateY(1px); }
+  .fine { color:var(--muted); font-size:11.5px; text-align:center; margin-top:16px; }
+  .terms { margin-top:2px; }
+</style>
+</head>
+<body>
+  <form class="card" action="/login" method="POST" autocomplete="on">
+    <div class="brand"><div class="dot"></div><h1>Guest Wi-Fi</h1></div>
+    <p class="sub">Sign in with your account to get free internet access.</p>
+
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" inputmode="email" placeholder="you@example.com" required>
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" placeholder="Your password" required>
+
+    <div class="row terms">
+      <input id="agree" type="checkbox" required>
+      <label for="agree" style="margin:0;color:var(--muted)">I agree to the terms of service</label>
+    </div>
+
+    <button type="submit">Connect</button>
+    <p class="fine">Secure sign-in • Your session will start automatically</p>
+  </form>
+</body>
+</html>

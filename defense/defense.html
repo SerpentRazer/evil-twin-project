@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>guardian // defense console</title>
+<style>
+  :root{
+    --bg:#04080d; --panel:#081018; --line:#123047; --line2:#12557d;
+    --cyan:#39d0ff; --blue:#4d8dff; --grn:#00ff9c; --amber:#ffb000; --red:#ff4d5e;
+    --text:#d5ecff; --muted:#5c7d97; --glow:0 0 6px rgba(57,208,255,.55);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{ background:radial-gradient(1200px 700px at 50% -20%, #071624 0%, var(--bg) 60%), var(--bg);
+    color:var(--text); font:13.5px/1.55 ui-monospace,"JetBrains Mono","Fira Code",Menlo,Consolas,monospace;
+    padding:16px; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  body::before{ content:""; position:fixed; inset:0; pointer-events:none; z-index:9;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,20,40,.35) 2px 3px);
+    mix-blend-mode:overlay; opacity:.5; }
+  a{ color:var(--cyan); text-decoration:none; }
+  .cursor{ display:inline-block; width:9px; height:15px; background:var(--cyan); box-shadow:var(--glow);
+    animation:blink 1s steps(1) infinite; vertical-align:-2px; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  header{ border:1px solid var(--line2); border-radius:10px; padding:11px 16px;
+    background:linear-gradient(180deg,rgba(57,208,255,.06),transparent);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px; flex:none; }
+  .prompt{ font-size:15px; color:var(--cyan); text-shadow:var(--glow); white-space:nowrap; }
+  .prompt .u{ color:var(--grn); } .prompt .p{ color:var(--muted); }
+  .spacer{ flex:1; }
+  .mode{ border:1px solid var(--line2); border-radius:6px; padding:2px 10px; font-size:12px; color:var(--amber); }
+  .mode.live{ color:var(--red); border-color:#5a1620; }
+
+  .strip{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; flex:none; }
+  .chip{ border:1px solid var(--line); border-radius:7px; padding:5px 11px; font-size:12px;
+    color:var(--muted); background:var(--panel); display:flex; align-items:center; gap:7px; }
+  .chip .dot{ width:8px; height:8px; border-radius:50%; background:#123; }
+  .chip.on{ color:var(--cyan); border-color:var(--line2); } .chip.on .dot{ background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  .chip.grn{ color:var(--grn); } .chip.grn .dot{ background:var(--grn); box-shadow:0 0 8px var(--grn); }
+  .chip.red{ color:var(--red); } .chip.red .dot{ background:var(--red); box-shadow:0 0 8px var(--red); }
+  .chip button{ background:transparent; border:0; color:inherit; font:inherit; cursor:pointer; padding:0; text-decoration:underline; }
+
+  /* the DO-NOT-CONNECT banner */
+  .alert{ display:none; align-items:center; gap:14px; border:1px solid var(--red); border-radius:10px;
+    padding:12px 16px; margin-bottom:12px; background:rgba(255,77,94,.12); flex:none;
+    box-shadow:0 0 24px rgba(255,77,94,.25); animation:pulse 1.2s ease-in-out infinite; }
+  .alert.show{ display:flex; }
+  @keyframes pulse{ 50%{ box-shadow:0 0 8px rgba(255,77,94,.15); } }
+  .alert .big{ font-size:20px; color:var(--red); text-shadow:0 0 8px rgba(255,77,94,.6); font-weight:700; }
+  .alert .txt{ color:var(--text); }
+
+  .grid{ display:grid; grid-template-columns:1fr; gap:12px; flex:1 1 auto; min-height:0; }
+  @media(min-width:1000px){ .grid{ grid-template-columns:360px 1fr; } }
+  .col{ display:flex; flex-direction:column; gap:12px; min-height:0; }
+  .panel{ border:1px solid var(--line); border-radius:10px; background:var(--panel);
+    display:flex; flex-direction:column; min-height:0; }
+  .panel h2{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--cyan);
+    margin:0; padding:10px 14px; border-bottom:1px solid var(--line); text-shadow:var(--glow);
+    display:flex; gap:8px; align-items:center; }
+  .panel h2 .n{ color:var(--muted); }
+  .scroll{ overflow-y:auto; min-height:0; flex:1; padding:8px 14px 12px; }
+
+  .rogue{ border:1px solid #3a2130; border-radius:8px; padding:9px 11px; margin:8px 0; background:rgba(255,77,94,.06); }
+  .rogue .ssid{ color:var(--red); font-weight:600; }
+  .rogue .meta{ color:var(--muted); font-size:11.5px; margin-top:2px; }
+  .rogue .why{ color:var(--amber); font-size:11.5px; margin-top:4px; }
+  .att{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:9px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .att:last-child{ border-bottom:0; }
+  .att .warn{ color:var(--red); font-weight:600; }
+  .att .sta{ color:var(--cyan); }
+  .att .act{ margin-left:auto; font-size:11px; border:1px solid var(--line2); border-radius:5px; padding:1px 7px; color:var(--muted); }
+  .att .act.contained{ color:var(--grn); border-color:#0a7d57; }
+  .att .ts{ color:var(--muted); font-size:11px; }
+  .empty{ color:var(--muted); padding:20px 4px; text-align:center; }
+
+  .console{ background:#03070c; font-size:12.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  .console .a{ color:var(--red); text-shadow:0 0 6px rgba(255,77,94,.4); }
+  .console .d{ color:var(--cyan); }
+  .console .c{ color:var(--grn); }
+  .console .ts{ color:var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="prompt"><span class="u">root</span><span class="p">@</span>blue-team<span class="p">:~#</span> ./guardian --watch<span class="cursor"></span></div>
+    <div class="spacer"></div>
+    <a id="atkLink" href="#" target="_blank">attacker console ↗</a>
+    <span class="mode" id="mode">LIVE</span>
+  </header>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="alert" id="alert">
+    <span class="big">⚠ DO NOT CONNECT</span>
+    <span class="txt" id="alertTxt"></span>
+  </div>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel" style="flex:0 1 auto; max-height:45%">
+        <h2>🛑 blocklisted rogues <span class="n" id="rogueN"></span></h2>
+        <div class="scroll" id="rogues"><div class="empty">no evil twins detected — all clear</div></div>
+      </div>
+      <div class="panel" style="flex:1 1 auto">
+        <h2>⚠ connection attempts <span class="n" id="attN"></span></h2>
+        <div class="scroll" id="attempts"><div class="empty">no devices reaching for a rogue yet</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>▍guardian console <span class="n">— live defense log</span></h2>
+      <div class="scroll console" id="console">standing by_</div>
+    </div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => (s ?? "").toString().replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+  let lastAtt = 0;
+
+  $("atkLink").href = location.protocol + "//" + location.hostname + ":8080/";
+
+  async function poll() {
+    let s; try { s = await (await fetch("/api/state", { cache:"no-store" })).json(); } catch(e){ return; }
+    $("mode").textContent = s.mode; $("mode").className = "mode" + (s.mode === "LIVE" ? " live" : "");
+
+    $("strip").innerHTML =
+      `<span class="chip grn"><span class="dot"></span>DEFENSE ${s.active?'ACTIVE':'off'}</span>` +
+      `<span class="chip on"><span class="dot"></span>GUARDING ${s.known} networks</span>` +
+      `<span class="chip red"><span class="dot"></span>ROGUES ${s.evil.length}</span>` +
+      `<span class="chip ${s.contain?'red':''}"><span class="dot"></span>CONTAINMENT ${s.contain?'ON':'off'} ` +
+        `<button onclick="toggle(${s.contain?0:1})">[${s.contain?'disable':'enable'}]</button></span>` +
+      `<span class="chip ${s.ntfy?'grn':''}"><span class="dot"></span>PHONE ${s.ntfy?('ntfy:'+esc(s.ntfy_topic)):'off'}</span>` +
+      (s.pinned_channel ? `<span class="chip on"><span class="dot"></span>LOCKED ch${s.pinned_channel}</span>` : "");
+
+    // rogues
+    $("rogueN").textContent = s.evil.length ? `(${s.evil.length})` : "";
+    $("rogues").innerHTML = s.evil.length ? s.evil.map(e =>
+      `<div class="rogue"><div class="ssid">${esc(e.ssid)}</div>
+        <div class="meta">${esc(e.bssid)} · ch ${esc(e.channel)} · ${esc((e.crypto||['OPEN']).join(','))} · seen ${esc(e.ts)}</div>
+        ${(e.reasons||[]).map(r => `<div class="why">↳ ${esc(r)}</div>`).join("")}</div>`).join("")
+      : `<div class="empty">no evil twins detected — all clear</div>`;
+
+    // attempts
+    $("attN").textContent = s.attempts.length ? `(${s.attempts.length})` : "";
+    $("attempts").innerHTML = s.attempts.length ? s.attempts.map(a =>
+      `<div class="att"><span class="warn">DO NOT CONNECT</span>
+        <span class="sta">${esc(a.sta)}</span> → <span>${esc(a.ssid)}</span>
+        <span class="act ${a.action==='contained'?'contained':''}">${a.action==='contained'?'✓ contained':'⚠ warned'}</span>
+        <span class="ts">${esc(a.ts)}</span></div>`).join("")
+      : `<div class="empty">no devices reaching for a rogue yet</div>`;
+
+    // flash the big banner on a new attempt
+    if (s.attempts.length && s.attempts.length !== lastAtt) {
+      const a = s.attempts[0];
+      $("alertTxt").innerHTML = `Device <b>${esc(a.sta)}</b> is trying to join the FAKE "<b>${esc(a.ssid)}</b>" — it's an evil twin.`;
+      $("alert").classList.add("show");
+      clearTimeout(window._at); window._at = setTimeout(() => $("alert").classList.remove("show"), 8000);
+    }
+    lastAtt = s.attempts.length;
+  }
+
+  async function pollLogs() {
+    let t; try { t = await (await fetch("/api/logs", { cache:"no-store" })).text(); } catch(e){ return; }
+    const el = $("console");
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = (t || "standing by").split("\n").map(l => {
+      const e = esc(l);
+      if (/\*\*\*|DO NOT CONNECT|ATTEMPT/.test(l)) return `<span class="a">${e}</span>`;
+      if (/EVIL TWIN|BLOCKLISTED|\[detect\]/.test(l)) return `<span class="d">${e}</span>`;
+      if (/CONTAINMENT|contained/.test(l)) return `<span class="c">${e}</span>`;
+      return e;
+    }).join("\n");
+    if (bottom) el.scrollTop = el.scrollHeight;
+  }
+
+  window.toggle = async v => { await fetch("/api/toggle", { method:"POST",
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({ contain: !!v }) }); poll(); };
+
+  poll(); pollLogs();
+  setInterval(poll, 1500);
+  setInterval(pollLogs, 1000);
+</script>
+</body>
+</html>

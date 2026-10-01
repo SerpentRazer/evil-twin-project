@@ -1,0 +1,21 @@
+# Runtime data — never publish
+# captured submissions (fake demo rows + real creds)
+portal/captures.jsonl
+# real learned BSSIDs/SSIDs of nearby networks
+baseline.json
+/tmp/evil-twin-logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Internal context — not project code, contains personal data
+memory/
+.claude/
