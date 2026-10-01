@@ -34,6 +34,9 @@ PORT = int(os.environ.get("DEF_PORT", "8081"))
 IFACE = os.environ.get("DEF_IFACE", "wlan0mon")
 NTFY_TOPIC = os.environ.get("DEF_NTFY_TOPIC", "")     # e.g. "raz-evil-twin-alerts"
 NTFY_URL = os.environ.get("DEF_NTFY_URL", "https://ntfy.sh")
+KNOWN_FILE = os.environ.get("DEF_KNOWN", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                      "known_devices.json"))
+KNOWN = {}    # mac(lower) -> {name, vendor?, ntfy?, contain?}  per-device policy
 
 app = Flask(__name__)
 
@@ -42,7 +45,8 @@ CONSOLE = deque(maxlen=500)
 EVIL = {}                 # bssid -> {ssid, channel, crypto, reasons, ts}
 BLOCKLIST = set()         # bssid strings
 ATTEMPTS = deque(maxlen=100)
-STATE = {"active": True, "contain": CONTAIN, "known": 0, "pinned_channel": None}
+STATE = {"active": True, "contain": CONTAIN, "known": 0, "known_devices": 0,
+         "pinned_channel": None}
 
 
 # ---------------- alerting fan-out ----------------
@@ -63,14 +67,18 @@ def notify_desktop(title, msg):
         pass
 
 
-def notify_phone(title, msg, tags="warning,rotating_light", priority="urgent"):
-    """Best-effort phone push via ntfy.sh (install the ntfy app, subscribe to the topic)."""
-    if not NTFY_TOPIC:
+def notify_phone(title, msg, tags="warning,rotating_light", priority="urgent", topic=None):
+    """Best-effort phone push via ntfy.sh (install the ntfy app, subscribe to the topic).
+
+    `topic` overrides the global DEF_NTFY_TOPIC so a known device can route its
+    alert to its own owner's topic (see known_devices.json)."""
+    dest = topic or NTFY_TOPIC
+    if not dest:
         return
     def _send():
         try:
             req = urllib.request.Request(
-                f"{NTFY_URL.rstrip('/')}/{NTFY_TOPIC}", data=msg.encode(),
+                f"{NTFY_URL.rstrip('/')}/{dest}", data=msg.encode(),
                 headers={"Title": title, "Priority": priority, "Tags": tags})
             urllib.request.urlopen(req, timeout=4)
         except Exception:
@@ -78,16 +86,41 @@ def notify_phone(title, msg, tags="warning,rotating_light", priority="urgent"):
     threading.Thread(target=_send, daemon=True).start()
 
 
-def raise_alert(title, msg, tag="ALERT"):
-    """Fire on every channel at once."""
+def raise_alert(title, msg, tag="ALERT", topic=None):
+    """Fire on every channel at once; `topic` routes the phone push per-device."""
     clog(f"*** {title} — {msg}", tag)
     notify_desktop(title, msg)
-    notify_phone(title, msg)
+    notify_phone(title, msg, topic=topic)
 
 
 # ---------------- device fingerprint ----------------
 
 _manufdb = None
+
+
+def load_known():
+    """Load per-device policy from known_devices.json: MAC -> {name, ntfy?, contain?}.
+
+    Lets the guardian NAME a device instead of only its vendor (and name a phone
+    whose MAC is randomized, which hides the vendor), and route/contain it per
+    device. Unknown devices fall back to deauth containment — the only app-less
+    reach to a stranger's phone. Hot-reloadable via /api/known."""
+    global KNOWN
+    try:
+        with open(KNOWN_FILE) as f:
+            raw = json.load(f)
+        KNOWN = {str(k).lower(): (v if isinstance(v, dict) else {"name": str(v)})
+                 for k, v in raw.items()}
+        STATE["known_devices"] = len(KNOWN)
+        clog(f"loaded {len(KNOWN)} known device(s) from {os.path.basename(KNOWN_FILE)}")
+    except FileNotFoundError:
+        KNOWN = {}
+        STATE["known_devices"] = 0
+    except Exception as e:
+        KNOWN = {}
+        STATE["known_devices"] = 0
+        clog(f"known_devices.json parse error: {e} — all devices treated as unknown", "detect")
+    return KNOWN
 
 
 def _oui_vendor(mac):
@@ -112,19 +145,28 @@ def fingerprint_device(mac):
     real vendor is HIDDEN. We flag that honestly instead of guessing a vendor
     off a randomized address. A globally-unique MAC gets an OUI vendor lookup.
 
-    Returns {vendor, randomized, label}.
+    Returns {vendor, randomized, known, name, policy, label}. A MAC listed in
+    known_devices.json wins over any heuristic — that's how we put a real NAME
+    on a device whose randomized MAC otherwise hides its vendor.
     """
     mac = (mac or "").lower()
+    pol = KNOWN.get(mac)
+    if pol:
+        return {"vendor": pol.get("vendor"), "randomized": False, "known": True,
+                "name": pol.get("name"), "policy": pol,
+                "label": pol.get("name") or "known device"}
     try:
         first_octet = int(mac.split(":")[0], 16)
     except (ValueError, IndexError):
-        return {"vendor": None, "randomized": False, "label": "unknown device"}
+        return {"vendor": None, "randomized": False, "known": False,
+                "name": None, "policy": None, "label": "unknown device"}
     if first_octet & 0x02:                       # U/L bit set → randomized / private
-        return {"vendor": None, "randomized": True,
+        return {"vendor": None, "randomized": True, "known": False,
+                "name": None, "policy": None,
                 "label": "randomized MAC (privacy) — vendor hidden"}
     vendor = _oui_vendor(mac)
-    return {"vendor": vendor, "randomized": False,
-            "label": vendor or "unknown vendor"}
+    return {"vendor": vendor, "randomized": False, "known": False,
+            "name": None, "policy": None, "label": vendor or "unknown vendor"}
 
 
 # ---------------- detection events ----------------
@@ -149,16 +191,29 @@ def on_evil_twin(bssid, ssid, channel, crypto, reasons):
 def on_connect_attempt(sta, bssid):
     ssid = EVIL.get(bssid, {}).get("ssid", "?")
     fp = fingerprint_device(sta)
+    policy = fp.get("policy") or {}
+    # Routing (known_devices.json): a KNOWN device is warned by name and only
+    # contained if its own policy opts in (default off — don't deauth your own
+    # gear); an UNKNOWN device falls back to deauth containment, the only
+    # app-less way to reach a stranger's phone. Containment still requires the
+    # global toggle to be on.
+    if fp.get("known"):
+        do_contain = STATE["contain"] and bool(policy.get("contain", False))
+    else:
+        do_contain = STATE["contain"]
+    who = fp.get("name") or fp["label"]
     with _lock:
         ATTEMPTS.appendleft({"ts": time.strftime("%H:%M:%S"), "sta": sta,
                              "bssid": bssid, "ssid": ssid,
                              "vendor": fp["vendor"], "device": fp["label"],
+                             "name": fp.get("name"), "known": fp.get("known"),
                              "randomized": fp["randomized"],
-                             "action": "contained" if STATE["contain"] else "warned"})
+                             "action": "contained" if do_contain else "warned"})
     raise_alert("⚠ DO NOT CONNECT",
-                f"Device {sta} ({fp['label']}) is trying to join the FAKE \"{ssid}\" ({bssid}). "
-                f"This is an evil twin — do not connect.", tag="ATTEMPT")
-    if STATE["contain"]:
+                f"Device {sta} ({who}) is trying to join the FAKE \"{ssid}\" ({bssid}). "
+                f"This is an evil twin — do not connect.",
+                tag="ATTEMPT", topic=policy.get("ntfy"))
+    if do_contain:
         contain(sta, bssid)
 
 
@@ -185,6 +240,7 @@ def live_engine():
 
     baseline = load_baseline()
     STATE["known"] = len(baseline)
+    load_known()
     clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {IFACE}")
     if not baseline:
         clog("!! no baseline.json — run the detector's learn mode first for best results", "detect")
@@ -237,7 +293,8 @@ def live_engine():
 def state():
     with _lock:
         return {"active": STATE["active"], "contain": STATE["contain"],
-                "known": STATE["known"], "pinned_channel": STATE["pinned_channel"],
+                "known": STATE["known"], "known_devices": STATE["known_devices"],
+                "pinned_channel": STATE["pinned_channel"],
                 "ntfy": bool(NTFY_TOPIC), "ntfy_topic": NTFY_TOPIC,
                 "evil": [{"bssid": b, **v} for b, v in EVIL.items()],
                 "blocklist": sorted(BLOCKLIST),
@@ -270,6 +327,17 @@ def api_blocklist():
                                     for b in BLOCKLIST]), mimetype="application/json")
 
 
+@app.route("/api/known", methods=["GET", "POST"])
+def api_known():
+    """GET lists the per-device policy; POST hot-reloads known_devices.json."""
+    if request.method == "POST":
+        load_known()
+    with _lock:
+        return Response(json.dumps({"count": len(KNOWN),
+                                    "devices": [{"mac": m, **v} for m, v in KNOWN.items()]}),
+                        mimetype="application/json")
+
+
 @app.route("/api/toggle", methods=["POST"])
 def api_toggle():
     STATE["contain"] = bool((request.json or {}).get("contain"))
@@ -278,7 +346,9 @@ def api_toggle():
 
 
 if __name__ == "__main__":
+    load_known()
     clog(f"guardian up on :{PORT}  mode=LIVE  "
-         f"contain={'ON' if CONTAIN else 'off'}  phone={'ntfy:'+NTFY_TOPIC if NTFY_TOPIC else 'off'}")
+         f"contain={'ON' if CONTAIN else 'off'}  phone={'ntfy:'+NTFY_TOPIC if NTFY_TOPIC else 'off'}  "
+         f"known-devices={STATE['known_devices']}")
     threading.Thread(target=live_engine, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)

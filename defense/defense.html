@@ -129,6 +129,7 @@
     $("strip").innerHTML =
       `<span class="chip grn"><span class="dot"></span>DEFENSE ${s.active?'ACTIVE':'off'}</span>` +
       `<span class="chip on"><span class="dot"></span>GUARDING ${s.known} networks</span>` +
+      (s.known_devices ? `<span class="chip on"><span class="dot"></span>${s.known_devices} known device${s.known_devices>1?'s':''}</span>` : "") +
       `<span class="chip red"><span class="dot"></span>ROGUES ${s.evil.length}</span>` +
       `<span class="chip ${s.contain?'red':''}"><span class="dot"></span>CONTAINMENT ${s.contain?'ON':'off'} ` +
         `<button onclick="toggle(${s.contain?0:1})">[${s.contain?'disable':'enable'}]</button></span>` +

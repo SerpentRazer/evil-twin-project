@@ -3,6 +3,8 @@
 portal/captures.jsonl
 # real learned BSSIDs/SSIDs of nearby networks
 baseline.json
+# per-device policy — contains your own devices' real MACs (keep the .example only)
+defense/known_devices.json
 /tmp/evil-twin-logs/
 *.log
 

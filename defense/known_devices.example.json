@@ -1,0 +1,5 @@
+{
+  "_comment": "Per-device policy for the guardian. Copy to known_devices.json and fill in YOUR OWN devices' MACs. Key = station MAC (lowercase). name = who/what it is; ntfy = optional per-owner push topic (overrides the global one); contain = true only if you want this known device auto-deauthed off a rogue (default false — you normally just warn your own gear by name). Unknown devices (not listed here) fall back to deauth containment when containment is enabled.",
+  "aa:bb:cc:11:22:33": {"name": "Raz's Pixel", "ntfy": "raz-evil-twin-alerts", "contain": false},
+  "de:ad:be:ef:00:01": {"name": "Demo laptop (own)", "contain": false}
+}
