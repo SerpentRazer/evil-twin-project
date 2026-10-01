@@ -57,16 +57,19 @@ ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
 ENV_BEACON = os.environ.get("CON_BEACON_IFACE")
 LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
 
-# Rough injection/AP quality by driver — higher wins ATTACK. An unknown USB
-# adapter is ranked just above the AR9271 (ath9k_htc) so a freshly-added, more
-# capable adapter auto-takes the attack role while the AR9271 drops to defense.
+# AP-MODE suitability by driver — higher wins ATTACK (airbase-ng creates the
+# fake AP, so this ranks fake-AP/injection RELIABILITY, not raw TX power).
+# Atheros ath9k_htc (AR9271) is the gold standard for airbase-ng; Realtek
+# rtl8192cu/rtl8xxxu (e.g. AWUS036NHR) are powerful for sniff/deauth but flaky
+# in AP mode, so they rank below it and default to DEFENSE.
 INJECTION_RANK = {
-    "rtl88xxau": 95, "rtl8814au": 95, "8821au": 90, "rtl8812au": 95,
-    "mt76x2u": 90, "mt7612u": 90, "mt76x0u": 70, "mt7921u": 75, "mt76": 80,
-    "rt2800usb": 65, "carl9170": 55, "rtl8187": 45,
-    "ath9k_htc": 50,                                # AR9271 — solid, but defense by default
+    "rtl88xxau": 90, "rtl8814au": 90, "8821au": 85, "rtl8812au": 90,   # need aircrack DKMS driver
+    "mt76x2u": 92, "mt7612u": 92, "mt76x0u": 60, "mt7921u": 70, "mt76": 85,
+    "ath9k_htc": 80,                                # AR9271 — best AP-mode USB adapter here
+    "carl9170": 55, "rt2800usb": 55,
+    "rtl8192cu": 40, "rtl8xxxu": 40, "rtl8188ru": 40, "rtl8187": 35,    # AWUS036NHR family: defense
 }
-UNKNOWN_USB_RANK = 52                               # beats ath9k_htc on purpose
+UNKNOWN_USB_RANK = 50                               # unknown adapter: below known-good ath9k_htc
 
 ROLES = {"attack": None, "defense": None, "beacon": None}
 RADIOS = {}                                         # iface -> health/role dict (for the UI)
