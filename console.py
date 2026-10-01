@@ -583,7 +583,8 @@ def unified_status():
 @app.route("/")
 def index():
     with open(os.path.join(HERE, "console.html")) as f:
-        return Response(f.read(), mimetype="text/html")
+        return Response(f.read(), mimetype="text/html",
+                        headers={"Cache-Control": "no-store, max-age=0"})
 
 
 def _portal_file(name):

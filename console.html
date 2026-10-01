@@ -113,6 +113,11 @@
   /* ---------------- buttons / inputs ---------------- */
   button.act{background:var(--glass2);color:var(--ink);border:1px solid var(--brd);border-radius:10px;
     padding:9px 15px;cursor:pointer;font:600 14px var(--font);transition:.15s;box-shadow:inset 0 1px 0 var(--hi)}
+  button.act:disabled{opacity:.45;cursor:not-allowed;transform:none;filter:saturate(.6)}
+  button.act.busy{opacity:.8}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+    border-radius:50%;animation:spin .7s linear infinite;margin-right:7px;vertical-align:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
   button.act:hover{border-color:var(--brd2);background:rgba(255,255,255,.13);transform:translateY(-1px)}
   button.go{background:var(--green);color:#042b1b;border-color:var(--green);font-weight:700;box-shadow:0 0 16px rgba(52,211,153,.35)}
   button.go:hover{filter:brightness(1.08);transform:translateY(-1px)}
@@ -169,10 +174,11 @@
 
   /* ---------------- right log rail ---------------- */
   .lograil{grid-column:3;grid-row:2;border-left:1px solid var(--brd);background:rgba(255,255,255,.025);
-    position:relative;display:flex;flex-direction:column;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-  .rail-h{padding:13px 16px;border-bottom:1px solid var(--brd);font-size:11.5px;letter-spacing:1.4px;
+    position:sticky;top:56px;align-self:start;height:calc(100vh - 56px);
+    display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .rail-h{flex:none;padding:13px 16px;border-bottom:1px solid var(--brd);font-size:11.5px;letter-spacing:1.4px;
     text-transform:uppercase;color:var(--dim);font-weight:700}
-  #console{flex:1;min-height:320px;background:transparent;border:0;padding:12px 16px;overflow:auto;
+  #console{flex:1;min-height:0;background:transparent;border:0;padding:12px 16px;overflow:auto;
     font:12.5px/1.6 var(--mono);white-space:pre-wrap;color:#a9c0d6}
   .resizer{position:absolute;left:-5px;top:0;width:11px;height:100%;cursor:col-resize;z-index:15;
     display:flex;align-items:center;justify-content:center}
@@ -189,8 +195,8 @@
     .side nav{flex-direction:row;overflow:auto;gap:6px}
     .side nav button{white-space:nowrap} .side-foot{display:none}
     main{grid-column:1;grid-row:auto}
-    .lograil{grid-column:1;grid-row:auto;border-left:0;border-top:1px solid var(--brd)}
-    #console{max-height:300px} .resizer{display:none}
+    .lograil{grid-column:1;grid-row:auto;position:static;height:auto;border-left:0;border-top:1px solid var(--brd)}
+    #console{height:300px;max-height:300px} .resizer{display:none}
   }
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:6px}
@@ -284,7 +290,7 @@
     <div class="card">
       <h2>recon</h2>
       <div class="row">
-        <button class="act go" onclick="act('red_scan')">enable monitor &amp; scan</button>
+        <button class="act go" id="b-scan" onclick="act('red_scan')">enable monitor &amp; scan</button>
         <span class="mini" id="red-scanmsg"></span>
       </div>
       <table style="margin-top:10px"><thead><tr><th>CH</th><th>PWR</th><th>ENC</th><th>BSSID</th><th>SSID</th><th></th></tr></thead>
@@ -294,8 +300,8 @@
       <h2>attack</h2>
       <div class="row">
         <span>target: <span class="tgt" id="tgt">— none —</span></span>
-        <button class="act go" onclick="act('red_launch')">launch evil twin</button>
-        <button class="act stop" onclick="act('red_stop')">stop all</button>
+        <button class="act go" id="b-launch" onclick="act('red_launch')">launch evil twin</button>
+        <button class="act stop" id="b-stop" onclick="act('red_stop')">stop all</button>
       </div>
       <div class="mini" style="margin-top:8px">Pick a target from recon, then launch. Authorized / own devices only.</div>
     </div>
@@ -377,8 +383,8 @@
         <label class="sw"><input type="checkbox" id="ai-en" checked onchange="aiCfg()"> enable second opinion (blue team)</label>
         <label class="fld">model
           <select id="ai-model" onchange="aiCfg()">
-            <option value="huihui_ai/qwen3.5-abliterated:9b-q4_K">qwen3.5-abliterated 9b · primary</option>
-            <option value="qwen2.5:7b-instruct">qwen2.5 7b-instruct · fallback</option>
+            <option value="qwen2.5:7b-instruct">qwen2.5 7b-instruct · primary (fast)</option>
+            <option value="huihui_ai/qwen3.5-abliterated:9b-q4_K">qwen3.5-abliterated 9b · fallback</option>
           </select></label>
         <div class="mini">the two models we use — the analyst tries the selected one first, then the other</div>
         <div class="mini">Basis: it reasons over the detector's evidence — a new BSSID for a known name, a WPA2&rarr;Open downgrade, an unknown vendor (OUI), or a signal louder than the real AP. No training, no embeddings/RAG.</div>
@@ -495,9 +501,33 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.tab === "captures") loadCaptures();
 });
 
+function btnBusy(btn){
+  if(!btn || btn.tagName!=="BUTTON") return function(){};
+  const html=btn.innerHTML, dis=btn.disabled;
+  btn.disabled=true; btn.classList.add("busy"); btn.innerHTML='<span class="spin"></span>working…';
+  return function(){ btn.classList.remove("busy"); btn.disabled=dis; btn.innerHTML=html; };
+}
+function setBtn(id, disabled, label){
+  const b=$(id); if(!b || b.classList.contains("busy")) return;   // don't fight the transient busy flash
+  b.disabled=!!disabled;
+  if(label!=null && b.textContent!==label) b.textContent=label;
+}
+const _pend={};
+function pend(k,ms){ _pend[k]=Date.now()+ms; }
+function isPending(k){ return !!_pend[k] && Date.now()<_pend[k]; }
+// optimistic: show the busy state the instant you click (don't wait for the 2s poll)
+const _OPT={red_scan:["b-scan","scanning…"], red_launch:["b-launch","launching…"],
+            red_stop:["b-stop","stopping…"], blue_start:["blue-start","starting…"],
+            blue_stop:["blue-stop","stopping…"]};
 async function act(action, extra={}) {
-  await fetch("/api/action", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({action, ...extra})});
+  const opt=_OPT[action];
+  let restore=function(){};
+  if(opt){ pend(action,3000); const b=$(opt[0]); if(b){ b.disabled=true; b.textContent=opt[1]; } }
+  else { restore=btnBusy((window.event && window.event.currentTarget) || null); }
+  try{
+    await fetch("/api/action", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({action, ...extra})});
+  } finally { restore(); }
   refresh();
 }
 function toggleContain(){ act("blue_toggle", {contain: $("contain").checked}); }
@@ -550,6 +580,17 @@ async function refresh(){
   // BLUE
   $("blue-known").textContent = s.blue.known ? `guarding ${s.blue.known} known networks` : "";
   $("contain").checked = !!s.blue.contain;
+
+  // live button states — clear feedback, and blocks invalid/double clicks (no functional change)
+  const _scanning=!!s.red.scanning, _airbase=!!s.red.airbase, _portal=!!s.red.portal,
+        _hasTgt=!!(s.red.target&&s.red.target.ssid), _defRun=!!s.blue.running;
+  const pScan=isPending("red_scan"), pLaunch=isPending("red_launch"), pStop=isPending("red_stop"),
+        pBs=isPending("blue_start"), pBx=isPending("blue_stop");
+  setBtn("b-scan",  _scanning||_airbase||pScan, (_scanning||pScan)?"scanning…":"enable monitor & scan");
+  setBtn("b-launch", !_hasTgt||_airbase||_scanning||pLaunch, _airbase?"twin live":(pLaunch?"launching…":"launch evil twin"));
+  setBtn("b-stop",  !(_airbase||_portal||_scanning)&&!pStop, pStop?"stopping…":"stop all");
+  setBtn("blue-start", _defRun||pBs, _defRun?"defense running":(pBs?"starting…":"start defense"));
+  setBtn("blue-stop", !_defRun&&!pBx, pBx?"stopping…":"stop defense");
   const rg = s.blue.evil||[];
   $("rogueN").textContent = rg.length ? `(${rg.length})` : "";
   $("rogues").innerHTML = rg.length ? rg.map(e =>

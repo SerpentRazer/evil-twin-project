@@ -37,8 +37,8 @@ def _env(name, default):
 
 DEFAULTS = {
     "url": _env("DEF_AI_URL", "http://100.70.174.44:11434"),
-    "primary": _env("DEF_AI_PRIMARY", "huihui_ai/qwen3.5-abliterated:9b-q4_K"),
-    "fallback": _env("DEF_AI_FALLBACK", "qwen2.5:7b-instruct"),
+    "primary": _env("DEF_AI_PRIMARY", "qwen2.5:7b-instruct"),            # fast model first (demo)
+    "fallback": _env("DEF_AI_FALLBACK", "huihui_ai/qwen3.5-abliterated:9b-q4_K"),
     "timeout": float(_env("DEF_AI_TIMEOUT", "20")),
     "queue_size": int(_env("DEF_AI_QUEUE_SIZE", "16")),
     "result_limit": int(_env("DEF_AI_RESULT_LIMIT", "100")),
