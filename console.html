@@ -30,7 +30,6 @@
   nav button.active{ color:var(--ink); border-bottom-color:var(--cyan); }
   nav button.red.active{ border-bottom-color:var(--green); }
   nav button.blue.active{ border-bottom-color:var(--cyan); }
-  nav button.beacon.active{ border-bottom-color:var(--amber); }
   main{ padding:16px; max-width:1100px; margin:0 auto; }
   .tab{ display:none; } .tab.show{ display:block; }
   .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
@@ -100,7 +99,6 @@
     <span class="chip" id="c-airbase">AIRBASE</span>
     <span class="chip" id="c-portal">PORTAL</span>
     <span class="chip" id="c-defense">DEFENSE</span>
-    <span class="chip warn" id="c-beacon">BEACON</span>
     <span class="chip" id="c-captures">0 CAPTURES</span>
   </div>
 </header>
@@ -108,7 +106,6 @@
 <nav>
   <button class="red active" data-tab="red">🔴 RED TEAM</button>
   <button class="blue" data-tab="blue">🔵 BLUE TEAM</button>
-  <button class="beacon" data-tab="beacon">📡 BEACON</button>
   <button data-tab="captures">🎣 CAPTURES</button>
 </nav>
 
@@ -157,25 +154,6 @@
     </div>
   </section>
 
-  <!-- BEACON -->
-  <section class="tab" id="tab-beacon">
-    <div class="card">
-      <h2>warning beacon</h2>
-      <div class="mini" style="margin-bottom:10px">Broadcasts beacons whose SSID is a warning so nearby phones see it in their Wi-Fi list — the one app-less, number-less reach. ⚠ transmits; claims the radio (stop defense/attack first).</div>
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="b-ssid1" size="30" value="DO-NOT-JOIN-FreeWiFi-is-FAKE">
-      </div>
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="b-ssid2" size="30" value="WARNING-Evil-Twin-Nearby">
-      </div>
-      <div class="row">
-        <label class="mini">channel <input type="number" id="b-ch" min="1" max="14" value="6" style="width:60px"></label>
-        <button class="act go" onclick="startBeacon()">start beacon</button>
-        <button class="act stop" onclick="act('beacon_stop')">stop beacon</button>
-      </div>
-      <div class="mini" style="margin-top:8px">Each SSID max 32 bytes. Leave a field blank to skip it.</div>
-    </div>
-  </section>
 
   <!-- CAPTURES -->
   <section class="tab" id="tab-captures">
@@ -234,9 +212,9 @@ const STAGE_STEPS = [
   {t:"3 · Detect the twin — live, mid-attack",
    n:"On a SECOND radio, our passive sensor flags the evil twin in seconds WHILE the attack is still running — it sees the security downgrade and foreign hardware, with zero false alarms on the real APs.",
    w:"▶ watch 🔵 BLUE TEAM — the rogue turns red while RED stays live"},
-  {t:"4 · Warn everyone — even strangers",
-   n:"We reach phones with no app installed: their own Wi-Fi list shows a DO-NOT-JOIN warning, and devices we know by name get a push alert.",
-   w:"▶ watch 📡 BEACON and the red DO NOT CONNECT banner"},
+  {t:"4 · Warn the victim",
+   n:"The instant a device reaches for the fake, we fan out a warning — a big DO-NOT-CONNECT banner here, a desktop popup and a phone push — naming the device that's trying to join.",
+   w:"▶ watch 🔵 BLUE TEAM — the red DO NOT CONNECT banner + the attempts feed"},
   {t:"5 · Contain the attack",
    n:"Opt-in containment knocks the victim off the rogue automatically — WIPS-grade protection, routed per device.",
    w:"▶ watch 🔵 BLUE TEAM — the attempt flips to 'contained'"},
@@ -272,10 +250,6 @@ async function act(action, extra={}) {
   refresh();
 }
 function toggleContain(){ act("blue_toggle", {contain: $("contain").checked}); }
-function startBeacon(){
-  const ssids = [$("b-ssid1").value, $("b-ssid2").value].filter(s => s.trim());
-  act("beacon_start", {ssids, channel: parseInt($("b-ch").value)||6});
-}
 async function wipeCaptures(){ await fetch("/api/captures/wipe",{method:"POST"}); loadCaptures(); }
 
 function chip(id, on, cls){ const e=$(id); e.classList.toggle("on", !!on); if(cls) e.classList.toggle(cls, true); }
@@ -290,7 +264,6 @@ async function refresh(){
     : `radio: ${esc(rl.attack||s.iface||"?")} · 1 job at a time`;
   chip("c-monitor", s.red.monitor); chip("c-airbase", s.red.airbase);
   chip("c-portal", s.red.portal); chip("c-defense", s.blue.running);
-  const bc=$("c-beacon"); bc.classList.toggle("on", s.beacon.running);
   $("c-captures").textContent = (s.captures||0)+" CAPTURES";
   $("c-captures").classList.toggle("on", (s.captures||0)>0);
 
