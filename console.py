@@ -12,10 +12,17 @@ Centralizes the whole demo behind a single web UI on :8080, with four panels:
                  in their Wi-Fi list (reuses defense/warn_beacon.py).
   * CAPTURES   — captured captive-portal submissions.
 
-LIVE only — needs root + the AR9271. One radio does one job: starting the attack,
-the beacon, or defense each claims the adapter, so run one radio-mode at a time
-(the UI shows which is active). The console itself serves fine without root; the
-radio actions need it.
+LIVE only — needs root. MULTI-RADIO: each role (attack / defense / beacon) is
+mapped to a monitor-capable adapter. Roles on DIFFERENT adapters run at the SAME
+time — the headline being a live evil twin (RED) caught live by the detector
+(BLUE). Roles sharing one adapter stay mutually exclusive (so with a single
+adapter it degrades to the old one-job-at-a-time behaviour automatically).
+
+Role assignment is automatic and capability-based: the best-injection USB
+adapter takes ATTACK (airbase-ng), the AR9271 takes DEFENSE, and BEACON shares
+the defense radio (or a third adapter if present). Override per role with
+CON_ATTACK_IFACE / CON_DEFENSE_IFACE / CON_BEACON_IFACE, or force everything onto
+one radio with CON_IFACE (legacy single-radio mode).
 
     sudo python3 console.py            # http://127.0.0.1:8080
 
@@ -24,6 +31,7 @@ shell string; channel forced to int 1-14. Authorized / own-devices use only.
 """
 import os
 import sys
+import glob
 import json
 import time
 import threading
@@ -42,9 +50,28 @@ import ops_server as ops            # red team: recon / attack / capture helpers
 import guardian as guard            # blue team: detection, state, alerting, fingerprint
 
 PORT = int(os.environ.get("CON_PORT", "8080"))
-IFACE = os.environ.get("CON_IFACE", "wlan1")        # AR9271 monitor interface
-guard.IFACE = IFACE                                 # keep guardian's deauth/sniff on the same radio
-ops.IFACE = IFACE                                   # red-team scan/attack on the same radio (not wlan0)
+
+# ---- per-role interface overrides (else auto-assigned by capability) ----
+ENV_ATTACK = os.environ.get("CON_ATTACK_IFACE")
+ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
+ENV_BEACON = os.environ.get("CON_BEACON_IFACE")
+LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
+
+# Rough injection/AP quality by driver — higher wins ATTACK. An unknown USB
+# adapter is ranked just above the AR9271 (ath9k_htc) so a freshly-added, more
+# capable adapter auto-takes the attack role while the AR9271 drops to defense.
+INJECTION_RANK = {
+    "rtl88xxau": 95, "rtl8814au": 95, "8821au": 90, "rtl8812au": 95,
+    "mt76x2u": 90, "mt7612u": 90, "mt76x0u": 70, "mt7921u": 75, "mt76": 80,
+    "rt2800usb": 65, "carl9170": 55, "rtl8187": 45,
+    "ath9k_htc": 50,                                # AR9271 — solid, but defense by default
+}
+UNKNOWN_USB_RANK = 52                               # beats ath9k_htc on purpose
+
+ROLES = {"attack": None, "defense": None, "beacon": None}
+RADIOS = {}                                         # iface -> health/role dict (for the UI)
+_mon_cache = {}                                     # iface -> bool monitor-capable (cached)
+_radio_fix = {}                                     # iface -> last auto-heal ts
 
 app = Flask(__name__)
 
@@ -53,9 +80,6 @@ app = Flask(__name__)
 BEACON_LOG = deque(maxlen=200)
 _blue = {"sniffer": None, "hop_stop": None, "running": False}
 _beacon = {"proc": None}
-RADIO = {"present": True, "iface": IFACE, "mode": None, "channel": None,
-         "healthy": True, "note": "", "recoveries": 0}
-_radio_last_fix = 0.0
 
 
 def blog(line):
@@ -71,6 +95,132 @@ def merged_logs():
     rows += list(BEACON_LOG)
     rows.sort(key=lambda r: r[0])                   # HH:MM:SS lexical sort = chronological
     return rows[-400:]
+
+
+# ======================================================= RADIO MANAGER ====
+# Enumerate monitor-capable adapters and map the three roles onto them. Driver-
+# agnostic: a second adapter of any chipset is picked up automatically.
+
+def list_wifaces():
+    out = []
+    for net in glob.glob("/sys/class/net/*"):
+        name = os.path.basename(net)
+        if name.startswith("wl") and os.path.exists(os.path.join(net, "wireless")):
+            out.append(name)
+    return sorted(out)
+
+
+def _driver(iface):
+    try:
+        return os.path.basename(os.path.realpath(f"/sys/class/net/{iface}/device/driver"))
+    except OSError:
+        return ""
+
+
+def _bus(iface):
+    path = os.path.realpath(f"/sys/class/net/{iface}/device")
+    if "/usb" in path:
+        return "usb"
+    if "/pci" in path:
+        return "pci"
+    return "other"
+
+
+def _supports_monitor(iface):
+    if iface in _mon_cache:
+        return _mon_cache[iface]
+    ok = False
+    try:
+        phy = open(f"/sys/class/net/{iface}/phy80211/name").read().strip()
+        info = subprocess.check_output(["iw", "phy", phy, "info"], text=True,
+                                       stderr=subprocess.DEVNULL)
+        ok = "* monitor" in info
+    except Exception:
+        ok = False
+    _mon_cache[iface] = ok
+    return ok
+
+
+def _rank(driver):
+    return INJECTION_RANK.get(driver, UNKNOWN_USB_RANK)
+
+
+def radio_info(iface):
+    drv = _driver(iface)
+    return {"iface": iface, "driver": drv, "bus": _bus(iface),
+            "monitor": _supports_monitor(iface), "rank": _rank(drv)}
+
+
+def list_monitor_radios():
+    """Monitor-capable radios, best-for-attack first. USB adapters preferred;
+    the internal (PCI, e.g. iwlwifi) card is excluded from auto-assignment since
+    it carries the system's internet."""
+    radios = [radio_info(i) for i in list_wifaces()]
+    radios = [r for r in radios if r["monitor"]]
+    usb = [r for r in radios if r["bus"] == "usb"]
+    pool = usb or radios                            # fall back to any monitor radio
+    pool.sort(key=lambda r: r["rank"], reverse=True)
+    return pool
+
+
+def role_active(role):
+    if role == "attack":
+        r = red_status()
+        return bool(r.get("airbase") or r.get("portal") or r.get("scanning"))
+    if role == "defense":
+        return _blue["running"]
+    if role == "beacon":
+        return beacon_running()
+    return False
+
+
+def assign_roles():
+    """(Re)map attack/defense/beacon onto present adapters. Only idle roles are
+    (re)assigned, so a hotplug or re-enumeration never yanks a running job."""
+    pool = list_monitor_radios()
+    names = [r["iface"] for r in pool]
+    ath = next((r["iface"] for r in pool if r["driver"] == "ath9k_htc"), None)
+
+    if LEGACY_IFACE:                                # force single-radio
+        atk = deff = bcn = LEGACY_IFACE
+    else:
+        atk = ENV_ATTACK or (names[0] if names else None)
+        deff = ENV_DEFENSE or (ath if (ath and ath != atk)
+                               else next((n for n in names if n != atk), atk))
+        third = next((n for n in names if n not in (atk, deff)), None)
+        bcn = ENV_BEACON or third or deff           # beacon shares defense radio by default
+
+    desired = {"attack": atk, "defense": deff, "beacon": bcn}
+    for role, iface in desired.items():
+        # always do the first assignment; afterwards don't yank a running job's radio
+        if iface and (ROLES[role] is None or not role_active(role)):
+            ROLES[role] = iface
+    if ROLES["attack"]:
+        ops.IFACE = ROLES["attack"]
+    if ROLES["defense"]:
+        guard.IFACE = ROLES["defense"]
+
+
+def iface_busy_by_other(role):
+    """If the iface this role would use is already held by another ACTIVE role,
+    return that role's name (so we refuse to double-book one adapter)."""
+    me = ROLES.get(role)
+    for other in ("attack", "defense", "beacon"):
+        if other != role and ROLES.get(other) == me and role_active(other):
+            return other
+    return None
+
+
+def dual_radio():
+    return ROLES["attack"] and ROLES["defense"] and ROLES["attack"] != ROLES["defense"]
+
+
+def roles_summary():
+    if dual_radio():
+        return (f"attack={ROLES['attack']} defense={ROLES['defense']} "
+                f"beacon={ROLES['beacon']} — DUAL-RADIO: attack+defense can run together")
+    return (f"attack={ROLES['attack']} defense={ROLES['defense']} beacon={ROLES['beacon']} "
+            f"— single radio: one job at a time")
 
 
 # ============================================================ RED TEAM ====
@@ -102,6 +252,11 @@ def red_select(bssid):
 def blue_start():
     if _blue["running"]:
         return False
+    busy = iface_busy_by_other("defense")
+    if busy:
+        guard.clog(f"!! cannot start defense: {ROLES['defense']} is busy with {busy.upper()} "
+                   f"— add a 2nd monitor adapter or stop {busy}", "detect")
+        return False
     try:
         from scapy.all import (AsyncSniffer, Dot11, Dot11Beacon, Dot11Auth,
                                Dot11AssoReq, Dot11ReassoReq)
@@ -112,9 +267,10 @@ def blue_start():
         guard.clog(f"!! cannot start defense: {e}", "detect")
         return False
 
+    dif = ROLES["defense"]                          # defense radio (own, != attack when dual)
     baseline = load_baseline()
     guard.STATE["known"] = len(baseline)
-    guard.clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {IFACE}")
+    guard.clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {dif}")
     if not baseline:
         guard.clog("!! no baseline.json — run the detector's learn mode first", "detect")
 
@@ -127,7 +283,7 @@ def blue_start():
             if hop_stop.is_set():
                 return
             use = guard.STATE["pinned_channel"] or ch
-            subprocess.call(["iw", "dev", IFACE, "set", "channel", str(use)],
+            subprocess.call(["iw", "dev", dif, "set", "channel", str(use)],
                             stderr=subprocess.DEVNULL)
             time.sleep(0.8)
     threading.Thread(target=hopper, daemon=True).start()
@@ -158,12 +314,12 @@ def blue_start():
         if verdict == "evil":
             guard.on_evil_twin(bssid, ssid, fp.get("channel"), fp.get("crypto"), reasons)
 
-    sniffer = AsyncSniffer(iface=IFACE, prn=handle, store=False)
+    sniffer = AsyncSniffer(iface=dif, prn=handle, store=False)
     try:
         sniffer.start()
     except Exception as e:
         hop_stop.set()
-        guard.clog(f"!! sniff failed on {IFACE} (monitor mode up?): {e}", "detect")
+        guard.clog(f"!! sniff failed on {dif} (monitor mode up?): {e}", "detect")
         return False
     _blue["sniffer"] = sniffer
     _blue["running"] = True
@@ -196,11 +352,17 @@ def beacon_running():
 def beacon_start(ssids, channel):
     if beacon_running():
         return False
+    busy = iface_busy_by_other("beacon")
+    if busy:
+        blog(f"cannot start beacon: {ROLES['beacon']} is busy with {busy.upper()} "
+             f"— stop {busy} or use a separate adapter")
+        return False
+    bif = ROLES["beacon"]
     env = dict(os.environ)
-    env["WB_IFACE"] = IFACE
+    env["WB_IFACE"] = bif
     env["WB_CHANNEL"] = str(guard_sanitize_channel(channel))
     cmd = ["python3", os.path.join(ROOT, "defense", "warn_beacon.py")] + [s for s in ssids if s.strip()]
-    blog(f"$ WB_CHANNEL={env['WB_CHANNEL']} warn_beacon.py {' '.join(ssids)}")
+    blog(f"$ WB_IFACE={bif} WB_CHANNEL={env['WB_CHANNEL']} warn_beacon.py {' '.join(ssids)}")
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          text=True, bufsize=1, env=env)
     _beacon["proc"] = p
@@ -230,24 +392,9 @@ def guard_sanitize_channel(c):
 
 
 # ======================================================= RADIO WATCHDOG ==
-# Keeps the AR9271 usable through a live demo: catches USB drop, re-enumeration
-# under a new wlanN, and silent monitor-mode loss — and auto-heals what software
-# can. A glitch on stage is the #1 way to lose; this makes it self-recover.
-
-def find_ar9271():
-    """Interface currently bound to the ath9k_htc driver (AR9271), or None.
-    Found by DRIVER, not name, so a USB re-enumeration under a different wlanN
-    is still recognised and we can rebind to it."""
-    import glob as _glob
-    for net in _glob.glob("/sys/class/net/*"):
-        try:
-            drv = os.path.basename(os.path.realpath(os.path.join(net, "device", "driver")))
-        except OSError:
-            continue
-        if drv == "ath9k_htc":
-            return os.path.basename(net)
-    return None
-
+# Multi-radio demo-proofing: re-assign idle roles on hotplug/re-enumeration, and
+# auto-heal an adapter that silently fell out of monitor mode while a job on it
+# is running. A glitch on stage is the #1 way to lose; this self-recovers.
 
 def _iface_mode(iface):
     try:
@@ -265,48 +412,66 @@ def _iface_mode(iface):
     return mode, ch
 
 
-def _monitor_job_active():
-    r = red_status()
-    return bool(r.get("airbase") or r.get("portal") or r.get("scanning")
-                or _blue["running"] or beacon_running())
+def _heal_monitor(iface, want_ch):
+    now = time.time()
+    if now - _radio_fix.get(iface, 0) < 8:
+        return False
+    _radio_fix[iface] = now
+    ops.log(f"radio {iface} fell out of monitor — auto-healing (ch{want_ch})")
+    for c in (f"nmcli device set {iface} managed no",
+              f"ip link set {iface} down",
+              f"iw dev {iface} set type monitor",
+              f"ip link set {iface} up",
+              f"iw dev {iface} set channel {want_ch}"):
+        subprocess.call(["bash", "-c", c + " >/dev/null 2>&1 || true"])
+    return True
+
+
+def _want_channel(iface):
+    if iface == ROLES.get("attack") and ops.TARGET.get("channel"):
+        return ops.TARGET["channel"]
+    if iface == ROLES.get("defense"):
+        return guard.STATE.get("pinned_channel") or 6
+    return 6
 
 
 def radio_watchdog():
-    global IFACE, _radio_last_fix
     while True:
         try:
-            found = find_ar9271()
-            if not found:
-                RADIO.update(present=False, healthy=False, mode=None, channel=None,
-                             note="AR9271 not detected — replug the USB adapter (check VM passthrough)")
-            else:
-                if found != IFACE:                        # re-enumerated → rebind every consumer
-                    ops.log(f"radio re-enumerated: {IFACE} -> {found}; rebinding")
-                    IFACE = found
-                    guard.IFACE = found
-                    ops.IFACE = found
-                mode, ch = _iface_mode(found)
-                RADIO.update(present=True, iface=found, mode=mode, channel=ch)
-                want_mon = _monitor_job_active()
-                if want_mon and mode != "monitor" and (time.time() - _radio_last_fix) > 8:
-                    _radio_last_fix = time.time()
-                    RADIO["recoveries"] += 1
-                    ops.log(f"radio fell out of monitor mode — auto-healing {found}")
-                    want_ch = (guard.STATE.get("pinned_channel")
-                               or (ops.TARGET.get("channel") if ops.TARGET else None) or 6)
-                    for c in (f"nmcli device set {found} managed no",
-                              f"ip link set {found} down",
-                              f"iw dev {found} set type monitor",
-                              f"ip link set {found} up",
-                              f"iw dev {found} set channel {want_ch}"):
-                        subprocess.call(["bash", "-c", c + " >/dev/null 2>&1 || true"])
-                    RADIO.update(healthy=True, note=f"recovered monitor mode (x{RADIO['recoveries']})")
+            assign_roles()                          # pick up hotplug / re-enumeration (idle roles)
+            present = {r["iface"]: r for r in (radio_info(i) for i in list_wifaces())}
+            # which roles each assigned iface serves
+            role_of = {}
+            for role in ("attack", "defense", "beacon"):
+                role_of.setdefault(ROLES.get(role), []).append(role)
+            new = {}
+            for iface, roles in role_of.items():
+                if not iface:
+                    continue
+                info = present.get(iface)
+                rec = {"iface": iface, "roles": roles,
+                       "driver": info["driver"] if info else "",
+                       "present": bool(info), "mode": None, "channel": None,
+                       "healthy": True, "note": ""}
+                if not info:
+                    rec.update(healthy=False,
+                               note=f"adapter for {','.join(roles)} missing — replug USB")
                 else:
-                    RADIO["healthy"] = (mode == "monitor") if want_mon else True
-                    if RADIO["healthy"] and not RADIO["note"].startswith("recovered"):
-                        RADIO["note"] = ""
+                    mode, ch = _iface_mode(iface)
+                    rec.update(mode=mode, channel=ch)
+                    want_mon = any(role_active(r) for r in roles)
+                    if want_mon and mode != "monitor":
+                        if _heal_monitor(iface, _want_channel(iface)):
+                            rec["note"] = "recovered monitor mode"
+                        rec["healthy"] = False
+                    else:
+                        rec["healthy"] = (mode == "monitor") if want_mon else True
+                new[iface] = rec
+            RADIOS.clear()
+            RADIOS.update(new)
         except Exception as e:
-            RADIO.update(healthy=False, note=f"watchdog error: {e}")
+            RADIOS["_err"] = {"iface": "_err", "roles": [], "present": False,
+                              "healthy": False, "note": f"watchdog error: {e}"}
         time.sleep(3)
 
 
@@ -315,6 +480,8 @@ def radio_watchdog():
 def unified_status():
     r = red_status()
     g = guard.state()
+    radios = [RADIOS[k] for k in sorted(RADIOS) if k != "_err"]
+    overall_ok = all(x.get("healthy") for x in radios) if radios else True
     return {
         "red": {"target": ops.TARGET, "scanning": r.get("scanning"),
                 "airbase": r.get("airbase"), "dnsmasq": r.get("dnsmasq"),
@@ -325,10 +492,11 @@ def unified_status():
                  "attempts": g.get("attempts"), "ntfy": g.get("ntfy")},
         "beacon": {"running": beacon_running()},
         "captures": r.get("captures", 0),
-        "iface": IFACE,
-        "radio": {"present": RADIO["present"], "iface": RADIO["iface"], "mode": RADIO["mode"],
-                  "channel": RADIO["channel"], "healthy": RADIO["healthy"],
-                  "note": RADIO["note"], "recoveries": RADIO["recoveries"]},
+        "roles": dict(ROLES),
+        "dual_radio": bool(dual_radio()),
+        "iface": ROLES.get("attack"),               # legacy field = attack radio
+        "radios": radios,
+        "radio_ok": overall_ok,
     }
 
 
@@ -390,6 +558,10 @@ def api_action():
         if not ops.TARGET:
             ops.log("!! no target selected — pick one from the recon table first.")
             ok = False
+        elif iface_busy_by_other("attack"):
+            ops.log(f"!! {ROLES['attack']} busy with {iface_busy_by_other('attack').upper()} "
+                    f"— attack needs its own radio")
+            ok = False
         else:
             threading.Thread(target=ops.real_launch, daemon=True).start()
     elif action == "red_stop":
@@ -412,7 +584,8 @@ def api_action():
 
 
 if __name__ == "__main__":
-    ops.log(f"unified console up on :{PORT}  iface={IFACE}")
+    assign_roles()
+    ops.log(f"unified console up on :{PORT}  {roles_summary()}")
     if os.geteuid() != 0:
         ops.log("!! not root — radio actions (scan/attack/defense/beacon) will fail. run with sudo.")
     threading.Thread(target=radio_watchdog, daemon=True).start()

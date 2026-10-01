@@ -230,9 +230,9 @@ const STAGE_STEPS = [
   {t:"2 · Clone it & attack",
    n:"One click clones that network — same name, open, with a captive portal. Anyone who joins the fake hands us their login.",
    w:"▶ watch 🔴 RED TEAM, then 🎣 CAPTURES as the test phone submits"},
-  {t:"3 · Detect the twin",
-   n:"Our passive sensor flags the evil twin in seconds — it sees the security downgrade and foreign hardware, with zero false alarms on the real APs.",
-   w:"▶ watch 🔵 BLUE TEAM — the rogue turns red with its reasons"},
+  {t:"3 · Detect the twin — live, mid-attack",
+   n:"On a SECOND radio, our passive sensor flags the evil twin in seconds WHILE the attack is still running — it sees the security downgrade and foreign hardware, with zero false alarms on the real APs.",
+   w:"▶ watch 🔵 BLUE TEAM — the rogue turns red while RED stays live"},
   {t:"4 · Warn everyone — even strangers",
    n:"We reach phones with no app installed: their own Wi-Fi list shows a DO-NOT-JOIN warning, and devices we know by name get a push alert.",
    w:"▶ watch 📡 BEACON and the red DO NOT CONNECT banner"},
@@ -282,25 +282,31 @@ function chip(id, on, cls){ const e=$(id); e.classList.toggle("on", !!on); if(cl
 async function refresh(){
   let s;
   try { s = await (await fetch("/api/status")).json(); } catch(e){ return; }
-  $("iface").textContent = "radio: " + esc(s.iface);
+  const rl = s.roles || {};
+  $("iface").textContent = s.dual_radio
+    ? `ATK ${esc(rl.attack||"?")} · DEF ${esc(rl.defense||"?")} · DUAL-RADIO`
+    : `radio: ${esc(rl.attack||s.iface||"?")} · 1 job at a time`;
   chip("c-monitor", s.red.monitor); chip("c-airbase", s.red.airbase);
   chip("c-portal", s.red.portal); chip("c-defense", s.blue.running);
   const bc=$("c-beacon"); bc.classList.toggle("on", s.beacon.running);
   $("c-captures").textContent = (s.captures||0)+" CAPTURES";
   $("c-captures").classList.toggle("on", (s.captures||0)>0);
 
-  // radio health (header chip + stage overlay)
-  const rad = s.radio || {present:true, healthy:true};
-  const rok = rad.present && rad.healthy;
+  // radio health (header chip + stage overlay) — multi-radio aware
+  const radios = s.radios || [];
+  const rok = s.radio_ok !== false;
+  const missing = radios.find(r => !r.present);
+  const notMon = radios.find(r => r.present && !r.healthy);
   const rc = $("c-radio");
-  rc.textContent = !rad.present ? "NO RADIO" : (rok ? "RADIO OK" : "RADIO !");
+  rc.textContent = missing ? "NO RADIO" : (rok ? "RADIO OK" : "RADIO !");
   rc.classList.toggle("on", true); rc.classList.toggle("red", !rok);
-  rc.title = rad.note || `${rad.iface||""} ${rad.mode||""}`.trim();
+  rc.title = radios.map(r => `${r.iface}[${(r.roles||[]).join("/")}] ${r.present?(r.mode||"?"):"MISSING"}${r.note?" — "+r.note:""}`).join("\n") || "no radio";
+  const summary = radios.map(r => `${esc(r.iface)}·${esc((r.roles||[]).map(x=>x[0].toUpperCase()).join(""))}`).join("  ");
   const rh = $("st-rh");
   rh.className = "rh " + (rok ? "ok" : "bad");
   rh.textContent = rok
-    ? `RADIO OK · ${esc(rad.iface||"")}${rad.mode?" ("+esc(rad.mode)+")":""}`
-    : (esc(rad.note) || "RADIO FAULT — replug adapter");
+    ? `RADIO OK · ${summary||"—"}`
+    : (esc((missing||notMon||{}).note) || "RADIO FAULT — replug adapter");
   $("st-rogues").textContent = (s.blue.evil||[]).length;
   $("st-attempts").textContent = (s.blue.attempts||[]).length;
   $("st-captures").textContent = (s.captures||0);
