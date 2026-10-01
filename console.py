@@ -44,6 +44,7 @@ import guardian as guard            # blue team: detection, state, alerting, fin
 PORT = int(os.environ.get("CON_PORT", "8080"))
 IFACE = os.environ.get("CON_IFACE", "wlan1")        # AR9271 monitor interface
 guard.IFACE = IFACE                                 # keep guardian's deauth/sniff on the same radio
+ops.IFACE = IFACE                                   # red-team scan/attack on the same radio (not wlan0)
 
 app = Flask(__name__)
 

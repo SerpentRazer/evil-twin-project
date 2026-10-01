@@ -9,7 +9,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-MONIFACE="wlan0mon"
+IFACE="${ET_IFACE:-wlan1}"
 
 echo "Stopping dnsmasq..."
 pkill -f "dnsmasq -C /etc/dnsmasq-portal.conf" 2>/dev/null || true
@@ -30,10 +30,10 @@ pkill -f "evil_portal.py" 2>/dev/null || true
 rm -f /tmp/evil-twin-portal.pid
 systemctl stop apache2 2>/dev/null || true
 
-echo "Stopping monitor mode ($MONIFACE)..."
-airmon-ng stop "$MONIFACE" >/dev/null 2>&1 || true
-
-echo "Restoring NetworkManager..."
-systemctl restart NetworkManager
+echo "Restoring $IFACE to managed (hands it back to NetworkManager)..."
+ip link set "$IFACE" down 2>/dev/null || true
+iw dev "$IFACE" set type managed 2>/dev/null || true
+ip link set "$IFACE" up 2>/dev/null || true
+nmcli device set "$IFACE" managed yes 2>/dev/null || true
 
 echo "Done. Everything torn down."

