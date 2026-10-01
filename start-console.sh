@@ -3,11 +3,11 @@
 # One dashboard for everything: RED TEAM (attack), BLUE TEAM (defense),
 # BEACON (warning broadcast), CAPTURES. LIVE only — needs root.
 #
-# MULTI-RADIO: roles are auto-assigned to monitor-capable adapters — the
-# best-injection USB adapter takes ATTACK, the AR9271 takes DEFENSE, BEACON
-# shares the defense radio. With TWO adapters, attack and defense run at the
-# SAME TIME (live evil twin caught live). With one adapter it degrades to
-# one-job-at-a-time automatically.
+# MULTI-RADIO: roles are auto-assigned to monitor-capable adapters. POLICY: the
+# Atheros AR9271 (rock-solid monitor/deauth/beacon) is pinned to DEFENSE+BEACON;
+# ATTACK goes to the other, higher-power adapter (e.g. AWUS036NHR, whose 1W makes
+# the twin outshout the real AP). With TWO adapters, attack and defense run at
+# the SAME TIME (live evil twin caught live). One adapter -> one job at a time.
 #
 #   sudo ./start-console.sh                              # http://127.0.0.1:8080, auto-assign
 #   sudo CON_ATTACK_IFACE=wlan2 CON_DEFENSE_IFACE=wlan1 ./start-console.sh   # pin roles

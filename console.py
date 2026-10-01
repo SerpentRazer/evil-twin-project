@@ -57,11 +57,9 @@ ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
 ENV_BEACON = os.environ.get("CON_BEACON_IFACE")
 LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
 
-# AP-MODE suitability by driver — higher wins ATTACK (airbase-ng creates the
-# fake AP, so this ranks fake-AP/injection RELIABILITY, not raw TX power).
-# Atheros ath9k_htc (AR9271) is the gold standard for airbase-ng; Realtek
-# rtl8192cu/rtl8xxxu (e.g. AWUS036NHR) are powerful for sniff/deauth but flaky
-# in AP mode, so they rank below it and default to DEFENSE.
+# Injection/AP quality by driver — used only to order the NON-Atheros adapters
+# when picking ATTACK (the Atheros is pinned to DEFENSE+BEACON by policy in
+# assign_roles). Higher = preferred for the fake AP among the remaining radios.
 INJECTION_RANK = {
     "rtl88xxau": 90, "rtl8814au": 90, "8821au": 85, "rtl8812au": 90,   # need aircrack DKMS driver
     "mt76x2u": 92, "mt7612u": 92, "mt76x0u": 60, "mt7921u": 70, "mt76": 85,
@@ -180,18 +178,20 @@ def role_active(role):
 def assign_roles():
     """(Re)map attack/defense/beacon onto present adapters. Only idle roles are
     (re)assigned, so a hotplug or re-enumeration never yanks a running job."""
-    pool = list_monitor_radios()
+    pool = list_monitor_radios()                    # sorted best-injection first
     names = [r["iface"] for r in pool]
     ath = next((r["iface"] for r in pool if r["driver"] == "ath9k_htc"), None)
 
     if LEGACY_IFACE:                                # force single-radio
         atk = deff = bcn = LEGACY_IFACE
     else:
-        atk = ENV_ATTACK or (names[0] if names else None)
-        deff = ENV_DEFENSE or (ath if (ath and ath != atk)
-                               else next((n for n in names if n != atk), atk))
-        third = next((n for n in names if n not in (atk, deff)), None)
-        bcn = ENV_BEACON or third or deff           # beacon shares defense radio by default
+        # POLICY: the Atheros AR9271 (rock-solid monitor / deauth / beacon) is
+        # pinned to DEFENSE + BEACON; ATTACK goes to the other (higher-power)
+        # adapter — e.g. the AWUS036NHR, whose 1W makes the twin outshout the
+        # real AP. Falls back sanely with no Atheros or only one adapter.
+        deff = ENV_DEFENSE or ath or (names[-1] if names else None)
+        atk = ENV_ATTACK or next((n for n in names if n != deff), deff)
+        bcn = ENV_BEACON or ath or deff             # beacon with the Atheros too
 
     desired = {"attack": atk, "defense": deff, "beacon": bcn}
     for role, iface in desired.items():
