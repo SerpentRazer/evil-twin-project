@@ -274,6 +274,22 @@ def blue_start():
         return False
 
     dif = ROLES["defense"]                          # defense radio (own, != attack when dual)
+    # Ensure the defense radio is in MONITOR mode before opening the sniffer.
+    # Defense-only (no attack to set it up) or after a stop-evil-twin teardown
+    # the iface can be back in managed mode; opening AsyncSniffer there captures
+    # nothing. NM-safe: only this adapter is touched.
+    try:
+        info = subprocess.check_output(["iw", "dev", dif, "info"], text=True,
+                                       stderr=subprocess.DEVNULL)
+        if "type monitor" not in info:
+            guard.clog(f"putting {dif} into monitor mode for defense", "detect")
+            for c in (f"nmcli device set {dif} managed no",
+                      f"ip link set {dif} down",
+                      f"iw dev {dif} set type monitor",
+                      f"ip link set {dif} up"):
+                subprocess.call(["bash", "-c", c + " >/dev/null 2>&1 || true"])
+    except Exception as e:
+        guard.clog(f"!! could not verify monitor mode on {dif}: {e}", "detect")
     baseline = load_baseline()
     guard.STATE["known"] = len(baseline)
     guard.clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {dif}")
