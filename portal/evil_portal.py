@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evil-twin captive portal + live capture dashboard  (attacker side).
 
-⚠ AUTHORIZED DEMO ONLY — HackTech Lightning 2026. Use only against devices you
+⚠ AUTHORIZED USE ONLY — HackTech Lightning 2026. Use only against devices you
 own or are explicitly authorized to test. It logs whatever a victim submits.
 
 What it does:

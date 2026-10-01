@@ -3,9 +3,8 @@
 # Detects evil twins, blocklists them, catches devices trying to connect, and
 # alerts on the dashboard + desktop popup + phone (ntfy).
 #
-#   ./start-defense.sh                 # DEMO mode — simulated, safe, no hardware
-#   sudo ./start-defense.sh live       # LIVE — real monitor-mode detection
-#   sudo ./start-defense.sh live contain   # LIVE + active containment (deauth rogue links)
+#   sudo ./start-defense.sh            # LIVE — real monitor-mode detection
+#   sudo ./start-defense.sh contain    # LIVE + active containment (deauth rogue links)
 #
 # Phone push: export DEF_NTFY_TOPIC=your-unique-topic  (install the ntfy app,
 #             subscribe to that topic) before launching. Free, no account.
@@ -15,23 +14,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARDIAN="$SCRIPT_DIR/defense/guardian.py"
-MODE="${1:-demo}"
-CONTAIN_ARG="${2:-}"
+CONTAIN_ARG="${1:-}"
 
-if [[ "$MODE" == "live" ]]; then
-  if [[ $EUID -ne 0 ]]; then
-    echo "LIVE mode needs root (monitor mode): sudo $0 live"
-    exit 1
-  fi
-  export DEF_DEMO=0
-  echo "[*] DEFENSE CONSOLE — LIVE. Passive detection on ${DEF_IFACE:-wlan0mon}."
-  if [[ "$CONTAIN_ARG" == "contain" ]]; then
-    export DEF_CONTAIN=1
-    echo "[*] ACTIVE CONTAINMENT ON — will deauth rogue links. Authorized / own devices only."
-  fi
-else
-  export DEF_DEMO=1
-  echo "[*] DEFENSE CONSOLE — DEMO. Fully simulated; nothing transmitted."
+if [[ $EUID -ne 0 ]]; then
+  echo "This needs root (monitor mode): sudo $0"
+  exit 1
+fi
+echo "[*] DEFENSE CONSOLE — LIVE. Passive detection on ${DEF_IFACE:-wlan0mon}."
+if [[ "$CONTAIN_ARG" == "contain" ]]; then
+  export DEF_CONTAIN=1
+  echo "[*] ACTIVE CONTAINMENT ON — will deauth rogue links. Authorized / own devices only."
 fi
 
 [[ -n "${DEF_NTFY_TOPIC:-}" ]] && echo "[*] Phone push via ntfy topic: $DEF_NTFY_TOPIC"

@@ -241,7 +241,5 @@ def api_action():
 
 
 if __name__ == "__main__":
-    log(f"operator console up on :{PORT}  mode={'DEMO' if DEMO else 'LIVE'}")
-    if DEMO:
-        log("DEMO mode — nothing is transmitted. set OPS_DEMO=0 for a live run.")
+    log(f"operator console up on :{PORT}  mode=LIVE")
     app.run(host="0.0.0.0", port=PORT, threaded=True)

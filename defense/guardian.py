@@ -187,27 +187,6 @@ def live_engine():
     sniff(iface=IFACE, prn=handle, store=False)
 
 
-# ============================================================ DEMO ENGINE ==
-
-def demo_engine():
-    STATE["known"] = 62
-    clog("DEFENSE ACTIVE — guarding 62 known networks (SIM)")
-    time.sleep(2)
-    clog("[SIM] beacon storm — scoring new BSSIDs against baseline…", "detect")
-    time.sleep(2)
-    on_evil_twin("4e:49:6c:40:10:aa", "PRV_GUEST", 6, ["OPEN"],
-                 ["OUI 4e:49:6c is not part of this network's known hardware",
-                  "signal -24 dBm is 43 dB LOUDER than the real AP's peak (-67)"])
-    victims = [("a4:83:e7:11:02:d0", 3), ("6a:7e:db:34:04:9e", 5), ("6c:1f:8a:79:0a:b0", 4)]
-    for sta, delay in victims:
-        time.sleep(delay)
-        clog(f"[SIM] {sta} → Auth/AssocReq to 4e:49:6c:40:10:aa (rogue)", "detect")
-        on_connect_attempt(sta, "4e:49:6c:40:10:aa")
-    time.sleep(2)
-    clog("[SIM] demo complete — rogue blocklisted, victims warned"
-         + (" & contained" if STATE["contain"] else ""))
-
-
 # ============================================================ routes ==
 
 def state():
