@@ -91,6 +91,7 @@
 <body>
 <header>
   <h1>⚡ WI-FI <span class="sh">GUARDIAN</span> CONSOLE</h1>
+  <span class="iface" id="host" title="which operator is hosting this console"></span>
   <span class="iface" id="iface"></span>
   <button class="stage" onclick="openStage()">🎬 STAGE</button>
   <div class="chips">
@@ -282,6 +283,7 @@ function chip(id, on, cls){ const e=$(id); e.classList.toggle("on", !!on); if(cl
 async function refresh(){
   let s;
   try { s = await (await fetch("/api/status")).json(); } catch(e){ return; }
+  if (s.host) { $("host").textContent = `@${esc(s.host.name)}${s.host.tailnet_ip?" · "+esc(s.host.tailnet_ip)+":"+esc(s.host.port):""}`; }
   const rl = s.roles || {};
   $("iface").textContent = s.dual_radio
     ? `ATK ${esc(rl.attack||"?")} · DEF ${esc(rl.defense||"?")} · DUAL-RADIO`

@@ -35,7 +35,9 @@ import glob
 import json
 import time
 import threading
+import socket
 import subprocess
+import urllib.request
 from collections import deque
 
 from flask import Flask, request, Response
@@ -50,6 +52,18 @@ import ops_server as ops            # red team: recon / attack / capture helpers
 import guardian as guard            # blue team: detection, state, alerting, fingerprint
 
 PORT = int(os.environ.get("CON_PORT", "8080"))
+
+
+def _tailnet_ip():
+    try:
+        out = subprocess.check_output(["tailscale", "ip", "-4"], text=True, timeout=3)
+        return out.strip().splitlines()[0]
+    except Exception:
+        return ""
+
+
+HOSTNAME = socket.gethostname()                     # who's hosting this console (multi-operator)
+TAILNET_IP = _tailnet_ip()
 
 # ---- per-role interface overrides (else auto-assigned by capability) ----
 ENV_ATTACK = os.environ.get("CON_ATTACK_IFACE")
@@ -496,6 +510,7 @@ def unified_status():
                  "attempts": g.get("attempts"), "ntfy": g.get("ntfy")},
         "beacon": {"running": beacon_running()},
         "captures": r.get("captures", 0),
+        "host": {"name": HOSTNAME, "tailnet_ip": TAILNET_IP, "port": PORT},
         "roles": dict(ROLES),
         "dual_radio": bool(dual_radio()),
         "iface": ROLES.get("attack"),               # legacy field = attack radio
