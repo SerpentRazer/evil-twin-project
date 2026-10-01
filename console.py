@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """UNIFIED WI-FI GUARDIAN CONSOLE — one process, one port, one dashboard.
 
-Centralizes the whole demo behind a single web UI on :8080, with four panels:
+Centralizes the whole demo behind a single web UI on :8080, with three panels:
 
   * RED TEAM   — recon → impersonate → launch evil twin → live attack output
                  (reuses portal/ops_server.py).
   * BLUE TEAM  — detect evil twins, blocklist, catch connection attempts (with
                  device fingerprint), containment toggle, fan-out alerts
                  (reuses defense/guardian.py + evil_twin_detect.py).
-  * BEACON     — broadcast warning SSIDs so nearby phones see "DO-NOT-JOIN…"
-                 in their Wi-Fi list (reuses defense/warn_beacon.py).
   * CAPTURES   — captured captive-portal submissions.
 
-LIVE only — needs root. MULTI-RADIO: each role (attack / defense / beacon) is
-mapped to a monitor-capable adapter. Roles on DIFFERENT adapters run at the SAME
-time — the headline being a live evil twin (RED) caught live by the detector
-(BLUE). Roles sharing one adapter stay mutually exclusive (so with a single
-adapter it degrades to the old one-job-at-a-time behaviour automatically).
+LIVE only — needs root. MULTI-RADIO: each role (attack / defense) is mapped to a
+monitor-capable adapter. Roles on DIFFERENT adapters run at the SAME time — the
+headline being a live evil twin (RED) caught live by the detector (BLUE). Roles
+sharing one adapter stay mutually exclusive (so with a single adapter it degrades
+to one-job-at-a-time automatically).
 
-Role assignment is automatic and capability-based: the best-injection USB
-adapter takes ATTACK (airbase-ng), the AR9271 takes DEFENSE, and BEACON shares
-the defense radio (or a third adapter if present). Override per role with
-CON_ATTACK_IFACE / CON_DEFENSE_IFACE / CON_BEACON_IFACE, or force everything onto
-one radio with CON_IFACE (legacy single-radio mode).
+Role assignment is automatic and capability-based: the best-injection USB adapter
+takes ATTACK (airbase-ng), the AR9271 takes DEFENSE. Override per role with
+CON_ATTACK_IFACE / CON_DEFENSE_IFACE, or force everything onto one radio with
+CON_IFACE (legacy single-radio mode).
 
     sudo python3 console.py            # http://127.0.0.1:8080
 
@@ -35,7 +32,9 @@ import glob
 import json
 import time
 import threading
+import socket
 import subprocess
+import urllib.request
 from collections import deque
 
 from flask import Flask, request, Response
@@ -55,17 +54,26 @@ except Exception:
 
 PORT = int(os.environ.get("CON_PORT", "8080"))
 
+
+def _tailnet_ip():
+    try:
+        out = subprocess.check_output(["tailscale", "ip", "-4"], text=True, timeout=3)
+        return out.strip().splitlines()[0]
+    except Exception:
+        return ""
+
+
+HOSTNAME = socket.gethostname()                     # who's hosting this console (multi-operator)
+TAILNET_IP = _tailnet_ip()
+
 # ---- per-role interface overrides (else auto-assigned by capability) ----
 ENV_ATTACK = os.environ.get("CON_ATTACK_IFACE")
 ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
-ENV_BEACON = os.environ.get("CON_BEACON_IFACE")
 LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
 
-# AP-MODE suitability by driver — higher wins ATTACK (airbase-ng creates the
-# fake AP, so this ranks fake-AP/injection RELIABILITY, not raw TX power).
-# Atheros ath9k_htc (AR9271) is the gold standard for airbase-ng; Realtek
-# rtl8192cu/rtl8xxxu (e.g. AWUS036NHR) are powerful for sniff/deauth but flaky
-# in AP mode, so they rank below it and default to DEFENSE.
+# Injection/AP quality by driver — used only to order the NON-Atheros adapters
+# when picking ATTACK (the Atheros is pinned to DEFENSE by policy in
+# assign_roles). Higher = preferred for the fake AP among the remaining radios.
 INJECTION_RANK = {
     "rtl88xxau": 90, "rtl8814au": 90, "8821au": 85, "rtl8812au": 90,   # need aircrack DKMS driver
     "mt76x2u": 92, "mt7612u": 92, "mt76x0u": 60, "mt7921u": 70, "mt76": 85,
@@ -75,7 +83,7 @@ INJECTION_RANK = {
 }
 UNKNOWN_USB_RANK = 50                               # unknown adapter: below known-good ath9k_htc
 
-ROLES = {"attack": None, "defense": None, "beacon": None}
+ROLES = {"attack": None, "defense": None}
 RADIOS = {}                                         # iface -> health/role dict (for the UI)
 _mon_cache = {}                                     # iface -> bool monitor-capable (cached)
 _radio_fix = {}                                     # iface -> last auto-heal ts
@@ -84,22 +92,14 @@ app = Flask(__name__)
 
 # ---------------- unified console log ----------------
 
-BEACON_LOG = deque(maxlen=200)
 _blue = {"sniffer": None, "hop_stop": None, "running": False}
-_beacon = {"proc": None}
-
-
-def blog(line):
-    BEACON_LOG.append((time.strftime("%H:%M:%S"), f"[beacon] {line}"))
-    print(f"{time.strftime('%H:%M:%S')} [beacon] {line}", flush=True)
 
 
 def merged_logs():
-    """RED (ops) + BLUE (guardian) + BEACON consoles, merged newest-last."""
+    """RED (ops) + BLUE (guardian) consoles, merged newest-last."""
     rows = []
     rows += [(t, f"[RED] {l}") for t, l in list(ops.CONSOLE)]
     rows += [(t, f"[BLUE] {l}") for t, l in list(guard.CONSOLE)]
-    rows += list(BEACON_LOG)
     rows.sort(key=lambda r: r[0])                   # HH:MM:SS lexical sort = chronological
     return rows[-400:]
 
@@ -176,28 +176,27 @@ def role_active(role):
         return bool(r.get("airbase") or r.get("portal") or r.get("scanning"))
     if role == "defense":
         return _blue["running"]
-    if role == "beacon":
-        return beacon_running()
     return False
 
 
 def assign_roles():
-    """(Re)map attack/defense/beacon onto present adapters. Only idle roles are
+    """(Re)map attack/defense onto present adapters. Only idle roles are
     (re)assigned, so a hotplug or re-enumeration never yanks a running job."""
-    pool = list_monitor_radios()
+    pool = list_monitor_radios()                    # sorted best-injection first
     names = [r["iface"] for r in pool]
     ath = next((r["iface"] for r in pool if r["driver"] == "ath9k_htc"), None)
 
     if LEGACY_IFACE:                                # force single-radio
-        atk = deff = bcn = LEGACY_IFACE
+        atk = deff = LEGACY_IFACE
     else:
-        atk = ENV_ATTACK or (names[0] if names else None)
-        deff = ENV_DEFENSE or (ath if (ath and ath != atk)
-                               else next((n for n in names if n != atk), atk))
-        third = next((n for n in names if n not in (atk, deff)), None)
-        bcn = ENV_BEACON or third or deff           # beacon shares defense radio by default
+        # POLICY: the Atheros AR9271 is used ONLY for ATTACK (airbase-ng is
+        # bulletproof on ath9k_htc); the other, higher-power adapter (e.g. the
+        # AWUS036NHR, 1W) does DEFENSE — its range helps the detector hear the
+        # twin from far. Falls back sanely with no Atheros or only one adapter.
+        atk = ENV_ATTACK or ath or (names[0] if names else None)
+        deff = ENV_DEFENSE or next((n for n in names if n != atk), atk)
 
-    desired = {"attack": atk, "defense": deff, "beacon": bcn}
+    desired = {"attack": atk, "defense": deff}
     for role, iface in desired.items():
         # always do the first assignment; afterwards don't yank a running job's radio
         if iface and (ROLES[role] is None or not role_active(role)):
@@ -212,7 +211,7 @@ def iface_busy_by_other(role):
     """If the iface this role would use is already held by another ACTIVE role,
     return that role's name (so we refuse to double-book one adapter)."""
     me = ROLES.get(role)
-    for other in ("attack", "defense", "beacon"):
+    for other in ("attack", "defense"):
         if other != role and ROLES.get(other) == me and role_active(other):
             return other
     return None
@@ -225,8 +224,8 @@ def dual_radio():
 def roles_summary():
     if dual_radio():
         return (f"attack={ROLES['attack']} defense={ROLES['defense']} "
-                f"beacon={ROLES['beacon']} — DUAL-RADIO: attack+defense can run together")
-    return (f"attack={ROLES['attack']} defense={ROLES['defense']} beacon={ROLES['beacon']} "
+                f"— DUAL-RADIO: attack+defense can run together")
+    return (f"attack={ROLES['attack']} defense={ROLES['defense']} "
             f"— single radio: one job at a time")
 
 
@@ -349,55 +348,6 @@ def blue_stop():
     return True
 
 
-# ============================================================ BEACON ====
-
-def beacon_running():
-    p = _beacon["proc"]
-    return bool(p and p.poll() is None)
-
-
-def beacon_start(ssids, channel):
-    if beacon_running():
-        return False
-    busy = iface_busy_by_other("beacon")
-    if busy:
-        blog(f"cannot start beacon: {ROLES['beacon']} is busy with {busy.upper()} "
-             f"— stop {busy} or use a separate adapter")
-        return False
-    bif = ROLES["beacon"]
-    env = dict(os.environ)
-    env["WB_IFACE"] = bif
-    env["WB_CHANNEL"] = str(guard_sanitize_channel(channel))
-    cmd = ["python3", os.path.join(ROOT, "defense", "warn_beacon.py")] + [s for s in ssids if s.strip()]
-    blog(f"$ WB_IFACE={bif} WB_CHANNEL={env['WB_CHANNEL']} warn_beacon.py {' '.join(ssids)}")
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         text=True, bufsize=1, env=env)
-    _beacon["proc"] = p
-
-    def pump():
-        for line in p.stdout:
-            blog(line.rstrip())
-        blog(f"(beacon stopped: {p.returncode})")
-    threading.Thread(target=pump, daemon=True).start()
-    return True
-
-
-def beacon_stop():
-    p = _beacon["proc"]
-    if p and p.poll() is None:
-        p.terminate()
-        blog("beacon terminated")
-        return True
-    return False
-
-
-def guard_sanitize_channel(c):
-    try:
-        return max(1, min(14, int(c)))
-    except (TypeError, ValueError):
-        return 6
-
-
 # ======================================================= RADIO WATCHDOG ==
 # Multi-radio demo-proofing: re-assign idle roles on hotplug/re-enumeration, and
 # auto-heal an adapter that silently fell out of monitor mode while a job on it
@@ -449,7 +399,7 @@ def radio_watchdog():
             present = {r["iface"]: r for r in (radio_info(i) for i in list_wifaces())}
             # which roles each assigned iface serves
             role_of = {}
-            for role in ("attack", "defense", "beacon"):
+            for role in ("attack", "defense"):
                 role_of.setdefault(ROLES.get(role), []).append(role)
             new = {}
             for iface, roles in role_of.items():
@@ -616,8 +566,8 @@ def unified_status():
                  "known": g.get("known"), "pinned_channel": g.get("pinned_channel"),
                  "evil": g.get("evil"), "blocklist": g.get("blocklist"),
                  "attempts": g.get("attempts"), "ntfy": g.get("ntfy")},
-        "beacon": {"running": beacon_running()},
         "captures": r.get("captures", 0),
+        "host": {"name": HOSTNAME, "tailnet_ip": TAILNET_IP, "port": PORT},
         "roles": dict(ROLES),
         "dual_radio": bool(dual_radio()),
         "iface": ROLES.get("attack"),               # legacy field = attack radio
@@ -866,10 +816,6 @@ def api_action():
     elif action == "blue_toggle":
         guard.STATE["contain"] = bool(body.get("contain"))
         guard.clog(f"active containment {'ENABLED — will deauth rogue links' if guard.STATE['contain'] else 'disabled — warn-only'}")
-    elif action == "beacon_start":
-        ok = beacon_start(body.get("ssids") or [], body.get("channel", 6))
-    elif action == "beacon_stop":
-        ok = beacon_stop()
     else:
         return Response(json.dumps({"ok": False, "error": "unknown action"}),
                         status=400, mimetype="application/json")
@@ -880,6 +826,6 @@ if __name__ == "__main__":
     assign_roles()
     ops.log(f"unified console up on :{PORT}  {roles_summary()}")
     if os.geteuid() != 0:
-        ops.log("!! not root — radio actions (scan/attack/defense/beacon) will fail. run with sudo.")
+        ops.log("!! not root — radio actions (scan/attack/defense) will fail. run with sudo.")
     threading.Thread(target=radio_watchdog, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)
