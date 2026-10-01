@@ -53,6 +53,9 @@ app = Flask(__name__)
 BEACON_LOG = deque(maxlen=200)
 _blue = {"sniffer": None, "hop_stop": None, "running": False}
 _beacon = {"proc": None}
+RADIO = {"present": True, "iface": IFACE, "mode": None, "channel": None,
+         "healthy": True, "note": "", "recoveries": 0}
+_radio_last_fix = 0.0
 
 
 def blog(line):
@@ -226,6 +229,87 @@ def guard_sanitize_channel(c):
         return 6
 
 
+# ======================================================= RADIO WATCHDOG ==
+# Keeps the AR9271 usable through a live demo: catches USB drop, re-enumeration
+# under a new wlanN, and silent monitor-mode loss — and auto-heals what software
+# can. A glitch on stage is the #1 way to lose; this makes it self-recover.
+
+def find_ar9271():
+    """Interface currently bound to the ath9k_htc driver (AR9271), or None.
+    Found by DRIVER, not name, so a USB re-enumeration under a different wlanN
+    is still recognised and we can rebind to it."""
+    import glob as _glob
+    for net in _glob.glob("/sys/class/net/*"):
+        try:
+            drv = os.path.basename(os.path.realpath(os.path.join(net, "device", "driver")))
+        except OSError:
+            continue
+        if drv == "ath9k_htc":
+            return os.path.basename(net)
+    return None
+
+
+def _iface_mode(iface):
+    try:
+        info = subprocess.check_output(["iw", "dev", iface, "info"], text=True,
+                                       stderr=subprocess.DEVNULL)
+    except Exception:
+        return None, None
+    mode = ch = None
+    for ln in info.splitlines():
+        ln = ln.strip()
+        if ln.startswith("type "):
+            mode = ln.split()[1]
+        elif ln.startswith("channel "):
+            ch = ln.split()[1]
+    return mode, ch
+
+
+def _monitor_job_active():
+    r = red_status()
+    return bool(r.get("airbase") or r.get("portal") or r.get("scanning")
+                or _blue["running"] or beacon_running())
+
+
+def radio_watchdog():
+    global IFACE, _radio_last_fix
+    while True:
+        try:
+            found = find_ar9271()
+            if not found:
+                RADIO.update(present=False, healthy=False, mode=None, channel=None,
+                             note="AR9271 not detected — replug the USB adapter (check VM passthrough)")
+            else:
+                if found != IFACE:                        # re-enumerated → rebind every consumer
+                    ops.log(f"radio re-enumerated: {IFACE} -> {found}; rebinding")
+                    IFACE = found
+                    guard.IFACE = found
+                    ops.IFACE = found
+                mode, ch = _iface_mode(found)
+                RADIO.update(present=True, iface=found, mode=mode, channel=ch)
+                want_mon = _monitor_job_active()
+                if want_mon and mode != "monitor" and (time.time() - _radio_last_fix) > 8:
+                    _radio_last_fix = time.time()
+                    RADIO["recoveries"] += 1
+                    ops.log(f"radio fell out of monitor mode — auto-healing {found}")
+                    want_ch = (guard.STATE.get("pinned_channel")
+                               or (ops.TARGET.get("channel") if ops.TARGET else None) or 6)
+                    for c in (f"nmcli device set {found} managed no",
+                              f"ip link set {found} down",
+                              f"iw dev {found} set type monitor",
+                              f"ip link set {found} up",
+                              f"iw dev {found} set channel {want_ch}"):
+                        subprocess.call(["bash", "-c", c + " >/dev/null 2>&1 || true"])
+                    RADIO.update(healthy=True, note=f"recovered monitor mode (x{RADIO['recoveries']})")
+                else:
+                    RADIO["healthy"] = (mode == "monitor") if want_mon else True
+                    if RADIO["healthy"] and not RADIO["note"].startswith("recovered"):
+                        RADIO["note"] = ""
+        except Exception as e:
+            RADIO.update(healthy=False, note=f"watchdog error: {e}")
+        time.sleep(3)
+
+
 # ============================================================ status ====
 
 def unified_status():
@@ -242,6 +326,9 @@ def unified_status():
         "beacon": {"running": beacon_running()},
         "captures": r.get("captures", 0),
         "iface": IFACE,
+        "radio": {"present": RADIO["present"], "iface": RADIO["iface"], "mode": RADIO["mode"],
+                  "channel": RADIO["channel"], "healthy": RADIO["healthy"],
+                  "note": RADIO["note"], "recoveries": RADIO["recoveries"]},
     }
 
 
@@ -328,4 +415,5 @@ if __name__ == "__main__":
     ops.log(f"unified console up on :{PORT}  iface={IFACE}")
     if os.geteuid() != 0:
         ops.log("!! not root — radio actions (scan/attack/defense/beacon) will fail. run with sudo.")
+    threading.Thread(target=radio_watchdog, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)
