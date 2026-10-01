@@ -26,6 +26,7 @@ import os
 import sys
 import time
 import random
+import subprocess
 
 IFACE = os.environ.get("WB_IFACE", "wlan1")
 CHANNEL = int(os.environ.get("WB_CHANNEL", "6"))
@@ -36,6 +37,35 @@ DEFAULT_SSIDS = [
     "DO-NOT-JOIN-FreeWiFi-is-FAKE",
     "WARNING-Evil-Twin-Nearby",
 ]
+
+
+def ensure_radio(iface, channel):
+    """Put `iface` into monitor mode on `channel` so the beacon is actually seen.
+
+    Self-contained so starting the beacon straight from the web console works the
+    same as start-warn-beacon.sh — otherwise the radio stays on the wrong channel
+    (or in managed mode) and phones never see the warning SSIDs. NM-safe: only this
+    adapter is released from NetworkManager, so other adapters keep their internet.
+    Needs root."""
+    if os.geteuid() != 0:
+        print(f"!! not root — cannot set monitor/channel on {iface}; "
+              f"start from the console with sudo, or via start-warn-beacon.sh",
+              file=sys.stderr)
+        return
+    def sh(cmd):
+        subprocess.call(["bash", "-c", cmd + " >/dev/null 2>&1 || true"])
+    try:
+        info = subprocess.check_output(["iw", "dev", iface, "info"], text=True,
+                                       stderr=subprocess.DEVNULL)
+    except Exception:
+        info = ""
+    if "type monitor" not in info:                        # flip to monitor if needed
+        sh(f"nmcli device set {iface} managed no")
+        sh(f"ip link set {iface} down")
+        sh(f"iw dev {iface} set type monitor")
+        sh(f"ip link set {iface} up")
+    sh(f"iw dev {iface} set channel {channel}")           # match the frame's DS channel
+    print(f"  radio {iface}: monitor mode, channel {channel}")
 
 
 def laa_bssid():
@@ -58,6 +88,7 @@ def build_beacon(ssid, bssid):
 def main():
     from scapy.all import sendp
     ssids = [s for s in sys.argv[1:] if s.strip()] or DEFAULT_SSIDS
+    ensure_radio(IFACE, CHANNEL)                          # monitor + channel, console or terminal
     # one stable fake BSSID per SSID, so each shows as a single steady AP
     frames = [build_beacon(s, laa_bssid()) for s in ssids]
     for s in ssids:
