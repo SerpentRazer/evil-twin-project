@@ -224,6 +224,7 @@
 <header>
   <h1><span class="mk"></span>WI-FI <span class="sh">GUARDIAN</span></h1>
   <span class="iface" id="iface"></span>
+  <span class="iface" id="host"></span>
   <button class="stage" onclick="openStage()">STAGE</button>
   <div class="chips">
     <span class="chip" id="c-radio" title="AR9271 health">RADIO</span>
@@ -450,7 +451,7 @@
 <script>
 (function(){
   const S={
-    dual_radio:true, radio_ok:true, iface:"wlan0",
+    dual_radio:true, radio_ok:true, iface:"wlan0", host:{name:"kali-raz",tailnet_ip:"100.70.174.50",port:8080},
     roles:{attack:"wlan0", defense:"wlan1"},
     radios:[{iface:"wlan0",roles:["attack"],present:true,healthy:true,mode:"AP"},
             {iface:"wlan1",roles:["defense"],present:true,healthy:true,mode:"monitor"}],
@@ -568,6 +569,7 @@ async function refresh(){
   $("iface").textContent = s.dual_radio
     ? `ATK ${esc(rl.attack||"?")} · DEF ${esc(rl.defense||"?")} · DUAL-RADIO`
     : `radio: ${esc(rl.attack||s.iface||"?")} · 1 job at a time`;
+  if (s.host) $("host").textContent = `@${esc(s.host.name)}${s.host.tailnet_ip?" · "+esc(s.host.tailnet_ip)+":"+esc(s.host.port):""}`;
   chip("c-monitor", s.red.monitor); chip("c-airbase", s.red.airbase);
   chip("c-portal", s.red.portal); chip("c-defense", s.blue.running);
   $("c-captures").textContent = (s.captures||0)+" CAPTURES";
