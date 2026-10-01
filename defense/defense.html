@@ -69,6 +69,8 @@
   .att:last-child{ border-bottom:0; }
   .att .warn{ color:var(--red); font-weight:600; }
   .att .sta{ color:var(--cyan); }
+  .att .dev{ color:#9fb3b3; font-size:.85em; opacity:.9; }
+  .att .dev.rand{ color:#d9a441; font-style:italic; }
   .att .act{ margin-left:auto; font-size:11px; border:1px solid var(--line2); border-radius:5px; padding:1px 7px; color:var(--muted); }
   .att .act.contained{ color:var(--grn); border-color:#0a7d57; }
   .att .ts{ color:var(--muted); font-size:11px; }
@@ -145,7 +147,7 @@
     $("attN").textContent = s.attempts.length ? `(${s.attempts.length})` : "";
     $("attempts").innerHTML = s.attempts.length ? s.attempts.map(a =>
       `<div class="att"><span class="warn">DO NOT CONNECT</span>
-        <span class="sta">${esc(a.sta)}</span> → <span>${esc(a.ssid)}</span>
+        <span class="sta">${esc(a.sta)}</span>${a.device?` <span class="dev${a.randomized?' rand':''}">${esc(a.device)}</span>`:""} → <span>${esc(a.ssid)}</span>
         <span class="act ${a.action==='contained'?'contained':''}">${a.action==='contained'?'✓ contained':'⚠ warned'}</span>
         <span class="ts">${esc(a.ts)}</span></div>`).join("")
       : `<div class="empty">no devices reaching for a rogue yet</div>`;
@@ -153,7 +155,7 @@
     // flash the big banner on a new attempt
     if (s.attempts.length && s.attempts.length !== lastAtt) {
       const a = s.attempts[0];
-      $("alertTxt").innerHTML = `Device <b>${esc(a.sta)}</b> is trying to join the FAKE "<b>${esc(a.ssid)}</b>" — it's an evil twin.`;
+      $("alertTxt").innerHTML = `Device <b>${esc(a.sta)}</b>${a.device?` (${esc(a.device)})`:""} is trying to join the FAKE "<b>${esc(a.ssid)}</b>" — it's an evil twin.`;
       $("alert").classList.add("show");
       clearTimeout(window._at); window._at = setTimeout(() => $("alert").classList.remove("show"), 8000);
     }

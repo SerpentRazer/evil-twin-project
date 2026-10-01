@@ -85,6 +85,48 @@ def raise_alert(title, msg, tag="ALERT"):
     notify_phone(title, msg)
 
 
+# ---------------- device fingerprint ----------------
+
+_manufdb = None
+
+
+def _oui_vendor(mac):
+    """Best-effort hardware vendor from the OUI, via scapy's IEEE manuf DB.
+    Returns the short vendor name, or None if unknown."""
+    global _manufdb
+    try:
+        if _manufdb is None:
+            from scapy.all import conf
+            _manufdb = conf.manufdb
+        short, long = _manufdb.lookup(mac)
+        return short or long or None
+    except Exception:
+        return None
+
+
+def fingerprint_device(mac):
+    """Identify a station reaching for a rogue.
+
+    Phones (iOS 14+/Android 10+) randomize their MAC per-SSID by setting the
+    locally-administered (U/L) bit — so for exactly the devices that matter the
+    real vendor is HIDDEN. We flag that honestly instead of guessing a vendor
+    off a randomized address. A globally-unique MAC gets an OUI vendor lookup.
+
+    Returns {vendor, randomized, label}.
+    """
+    mac = (mac or "").lower()
+    try:
+        first_octet = int(mac.split(":")[0], 16)
+    except (ValueError, IndexError):
+        return {"vendor": None, "randomized": False, "label": "unknown device"}
+    if first_octet & 0x02:                       # U/L bit set → randomized / private
+        return {"vendor": None, "randomized": True,
+                "label": "randomized MAC (privacy) — vendor hidden"}
+    vendor = _oui_vendor(mac)
+    return {"vendor": vendor, "randomized": False,
+            "label": vendor or "unknown vendor"}
+
+
 # ---------------- detection events ----------------
 
 def on_evil_twin(bssid, ssid, channel, crypto, reasons):
@@ -106,12 +148,15 @@ def on_evil_twin(bssid, ssid, channel, crypto, reasons):
 
 def on_connect_attempt(sta, bssid):
     ssid = EVIL.get(bssid, {}).get("ssid", "?")
+    fp = fingerprint_device(sta)
     with _lock:
         ATTEMPTS.appendleft({"ts": time.strftime("%H:%M:%S"), "sta": sta,
                              "bssid": bssid, "ssid": ssid,
+                             "vendor": fp["vendor"], "device": fp["label"],
+                             "randomized": fp["randomized"],
                              "action": "contained" if STATE["contain"] else "warned"})
     raise_alert("⚠ DO NOT CONNECT",
-                f"Device {sta} is trying to join the FAKE \"{ssid}\" ({bssid}). "
+                f"Device {sta} ({fp['label']}) is trying to join the FAKE \"{ssid}\" ({bssid}). "
                 f"This is an evil twin — do not connect.", tag="ATTEMPT")
     if STATE["contain"]:
         contain(sta, bssid)
