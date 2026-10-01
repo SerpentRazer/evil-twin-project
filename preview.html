@@ -446,6 +446,63 @@
   </div>
 </div>
 
+<!-- PREVIEW: static mock data, no backend. Open directly in a browser. -->
+<script>
+(function(){
+  const S={
+    dual_radio:true, radio_ok:true, iface:"wlan0",
+    roles:{attack:"wlan0", defense:"wlan1"},
+    radios:[{iface:"wlan0",roles:["attack"],present:true,healthy:true,mode:"AP"},
+            {iface:"wlan1",roles:["defense"],present:true,healthy:true,mode:"monitor"}],
+    red:{monitor:true,airbase:true,portal:true,scanning:false,
+         target:{ssid:"PRV_GUEST",channel:6,bssid:"aa:9c:6c:a8:bb:03"}},
+    blue:{running:true,known:62,contain:false,
+      evil:[{ssid:"PRV_GUEST",bssid:"4e:49:6c:40:10:aa",channel:6,crypto:["OPEN"],ts:"03:41:00",
+        reasons:["security downgrade: real AP is WPA2, this clone is OPEN",
+                 "OUI 4e:49:6c is not part of this network's known hardware",
+                 "-24 dBm — 43 dB LOUDER than the real AP's peak (-67)"],
+        ai:{status:"complete",verdict:"likely_evil",severity:5,recommended_action:"warn_user",
+            model:"huihui_ai/qwen3.5-abliterated:9b-q4_K",
+            summary:"Open clone of a secured network, far louder than the real AP — consistent with an evil twin."}}],
+      attempts:[{sta:"a4:83:e7:11:02:d0",device:"Apple iPhone",randomized:false,ssid:"PRV_GUEST",action:"warned · ntfy",ts:"03:41:02"},
+                {sta:"6a:7e:db:34:04:9e",device:"randomized MAC",randomized:true,ssid:"PRV_GUEST",action:"warned",ts:"03:41:05"}]},
+    beacon:{running:false}, captures:3,
+    ai:{enabled:true, online:true, model:"huihui_ai/qwen3.5-abliterated:9b-q4_K"},
+    targets:[{channel:6,power:-41,enc:"WPA2",bssid:"aa:9c:6c:a8:bb:03",ssid:"PRV_GUEST"},
+             {channel:11,power:-55,enc:"WPA3",bssid:"40:ed:00:8b:16:f0",ssid:"Parc_Guest"},
+             {channel:1,power:-63,enc:"WPA2",bssid:"28:70:4e:6f:38:da",ssid:"SCR"}]
+  };
+  let LOGS=[
+    "03:40:58 [attack] === Evil twin \"PRV_GUEST\" LIVE on channel 6 ===",
+    "03:41:00 [detect] EVIL TWIN: \"PRV_GUEST\" 4e:49:6c:40:10:aa ch6 OPEN → BLOCKLISTED",
+    "03:41:00 [ai] AI endpoint LIVE at http://100.70.174.44:11434 — 2 model(s)",
+    "03:41:02 [attempt] CONNECT ATTEMPT: Apple iPhone → rogue \"PRV_GUEST\"  [known → ntfy]",
+    "03:41:02 [portal] CAPTURE 10.0.0.42 iPhone-Diana → email+password"
+  ].join("\n");
+  const CAPS=[
+    {ts:"03:41:02",hostname:"iPhone-Diana",ip:"10.0.0.42",fields:{email:"diana.marin@gmail.com",password:"Iarna2025!"}},
+    {ts:"03:41:06",hostname:"Pixel-7",ip:"10.0.0.51",fields:{email:"george.ilie",password:"Iarna2025!"}}
+  ];
+  const REPLY="PRV_GUEST from 4e:49:6c:40:10:aa is almost certainly an evil twin: it is an OPEN clone of a WPA2 network and about 43 dB louder than the real AP (aa:9c:...). Recommend: warn users now and enable containment. The genuine PRV_GUEST is unaffected.";
+  const GREET="Defense analyst here. A demo twin of PRV_GUEST is live and already flagged; 2 devices reached for it and 3 test logins were captured. I can explain the detection, recommend warn vs contain, or summarize for the judges.";
+  const REPORT="Summary\nA live evil-twin attack on \"PRV_GUEST\" was detected and blocklisted while the fake AP was still broadcasting.\n\nDetections\n- 1 evil twin: 4e:49:6c:40:10:aa, ch6, OPEN clone of a WPA2 network, ~43 dB louder than the real AP.\n\nVictim exposure\n- 2 devices reached for the rogue (1 known: Apple iPhone). 3 credential submissions captured.\n\nRecommendations\n- Warn affected users; rotate exposed passwords; keep containment enabled; verify the legitimate AP with IT.";
+  const NOTE="<!-- Preview mode: editing/saving works only on the live console (:8080). -->";
+  const J=x=>Promise.resolve({json:()=>Promise.resolve(x),text:()=>Promise.resolve(typeof x==="string"?x:JSON.stringify(x))});
+  window.fetch=function(u,opt){u=String(u);
+    if(u.indexOf("/api/ai/health")>=0)return J({ok:true,online:true,url:"http://100.70.174.44:11434",models:["huihui_ai/qwen3.5-abliterated:9b-q4_K","qwen2.5:7b-instruct"]});
+    if(u.indexOf("/api/ai/chat")>=0){ let b={};try{b=JSON.parse((opt&&opt.body)||"{}");}catch(_){}
+      const m=(b.message||"").toLowerCase(); const greet=/\b(hi|hello|hey|yo|hola|salut|thanks|thank you)\b/.test(m)||m.length<4;
+      return J({ok:true,reply:greet?GREET:REPLY,model:"huihui_ai/qwen3.5-abliterated:9b-q4_K"}); }
+    if(u.indexOf("/api/ai/report")>=0)return J({ok:true,report:REPORT,model:"huihui_ai/qwen3.5-abliterated:9b-q4_K"});
+    if(u.indexOf("/api/ai/config")>=0)return J({ok:true,enabled:true});
+    if(u.indexOf("/api/portal/file")>=0)return J(NOTE);
+    if(u.indexOf("/api/portal/save")>=0)return J({ok:false,error:"preview only — run the live console to save"});
+    if(u.indexOf("/api/status")>=0)return J(S);
+    if(u.indexOf("/api/logs")>=0)return J(LOGS);
+    if(u.indexOf("/api/captures")>=0)return J(CAPS);
+    return J({ok:true});};
+})();
+</script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
