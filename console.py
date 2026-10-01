@@ -185,13 +185,14 @@ def assign_roles():
     if LEGACY_IFACE:                                # force single-radio
         atk = deff = bcn = LEGACY_IFACE
     else:
-        # POLICY: the Atheros AR9271 (rock-solid monitor / deauth / beacon) is
-        # pinned to DEFENSE + BEACON; ATTACK goes to the other (higher-power)
-        # adapter — e.g. the AWUS036NHR, whose 1W makes the twin outshout the
-        # real AP. Falls back sanely with no Atheros or only one adapter.
-        deff = ENV_DEFENSE or ath or (names[-1] if names else None)
-        atk = ENV_ATTACK or next((n for n in names if n != deff), deff)
-        bcn = ENV_BEACON or ath or deff             # beacon with the Atheros too
+        # POLICY: the Atheros AR9271 is used ONLY for ATTACK (airbase-ng is
+        # bulletproof on ath9k_htc); the other, higher-power adapter (e.g. the
+        # AWUS036NHR, 1W) does DEFENSE + BEACON — its range helps the detector
+        # hear the twin from far and makes the warning beacon loud. Falls back
+        # sanely with no Atheros or only one adapter.
+        atk = ENV_ATTACK or ath or (names[0] if names else None)
+        deff = ENV_DEFENSE or next((n for n in names if n != atk), atk)
+        bcn = ENV_BEACON or deff                    # beacon with detection, NOT the Atheros
 
     desired = {"attack": atk, "defense": deff, "beacon": bcn}
     for role, iface in desired.items():
