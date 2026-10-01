@@ -845,4 +845,8 @@ if __name__ == "__main__":
     if os.geteuid() != 0:
         ops.log("!! not root — radio actions (scan/attack/defense) will fail. run with sudo.")
     threading.Thread(target=radio_watchdog, daemon=True).start()
+    try:
+        get_ai()                 # start + warm the AI model now so the first verdict isn't cold
+    except Exception:
+        pass
     app.run(host="0.0.0.0", port=PORT, threaded=True)

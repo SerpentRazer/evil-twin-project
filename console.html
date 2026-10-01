@@ -171,6 +171,14 @@
   .att .warn{color:var(--red);font-weight:700;font-size:.8em;margin-right:6px}
   .rogue{padding:8px 0;border-bottom:1px solid var(--brd)} .rogue .ssid{color:var(--red);font-weight:700}
   .pill{display:inline-block;font-size:11.5px;padding:3px 10px;border-radius:12px;background:var(--glass2);color:var(--dim);border:1px solid var(--brd)}
+  .pip{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:middle}
+  .aibadge{margin-top:8px;padding-top:8px;border-top:1px dashed var(--ai-line)}
+  .k-ai{color:var(--ai);font-weight:800}
+  .phase{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);padding:6px 12px;border:1px solid var(--brd);border-radius:999px}
+  .phase.on{color:var(--ink);background:var(--glass2);border-color:var(--brd2)}
+  .phase.on.red{color:var(--red-soft);border-color:var(--red-line);background:var(--red-bg)}
+  .phase.on.cyan{color:var(--cyan-soft);border-color:var(--cyan-line);background:var(--cyan-bg)}
+  .phase-sep{color:var(--mut);margin:0 1px}
 
   /* ---------------- right log rail ---------------- */
   .lograil{grid-column:3;grid-row:2;border-left:1px solid var(--brd);background:rgba(255,255,255,.025);
@@ -258,6 +266,7 @@
   <!-- OVERVIEW (Live Ops) -->
   <section class="tab show" id="tab-overview">
     <div class="ops-strip" id="ov-radio">—</div>
+    <div id="ov-phase" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
     <div class="ops-grid">
       <div class="card red">
         <h2><span class="k-red">attack</span></h2>
@@ -277,6 +286,17 @@
           <div><b class="n-amber" id="ov-att">0</b><span>attempts</span></div>
         </div>
         <button class="act" onclick="goTab('blue')">open defense ▸</button>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>live activity</h2>
+        <div class="mini" style="margin-bottom:8px">rogues blocklisted: <b class="n-red" id="ov-blocked">0</b></div>
+        <div id="ov-last-attempt" class="mini">no connection attempts yet</div>
+      </div>
+      <div class="card">
+        <h2>console tail</h2>
+        <div id="ov-logtail" class="mono" style="font:12px/1.55 var(--mono);white-space:pre-wrap;max-height:120px;overflow:auto;color:#a9c0d6">—</div>
       </div>
     </div>
     <div class="card">
@@ -326,6 +346,21 @@
     <div class="card">
       <h2>connection attempts <span id="attN" class="mini"></span></h2>
       <div id="attempts"><div class="empty">no devices reaching for a rogue yet</div></div>
+    </div>
+    <div class="card">
+      <h2>analyst chat <span class="mini">· ask the defense analyst</span></h2>
+      <div class="row" style="margin-bottom:8px">
+        <label class="sw"><input type="checkbox" id="blue-grounded" checked> use live situation as context</label>
+      </div>
+      <div class="chatlog" id="blue-chatlog"><div class="empty">Ask about a detection or what to do next.</div></div>
+      <div class="chatinput">
+        <input type="text" id="blue-chatin" placeholder="ask the analyst…" onkeydown="if(event.key==='Enter')blueChat()">
+        <button class="act go" onclick="blueChat()">send</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="act" onclick="blueAsk('Summarize the current situation in two sentences.')">summarize</button>
+        <button class="act" onclick="blueAsk('What is the single most dangerous thing right now, and what should I do about it?')">triage</button>
+      </div>
     </div>
   </section>
 
@@ -596,7 +631,8 @@ async function refresh(){
   $("rogues").innerHTML = rg.length ? rg.map(e =>
     `<div class="rogue"><span class="ssid">${esc(e.ssid)}</span>
       <div class="mini">${esc(e.bssid)} · ch${esc(e.channel)} · ${esc((e.crypto||['OPEN']).join(','))} · ${esc(e.ts)}</div>
-      ${(e.reasons||[]).map(r=>`<div class="mini">↳ ${esc(r)}</div>`).join("")}</div>`).join("")
+      ${(e.reasons||[]).map(r=>`<div class="mini">↳ ${esc(r)}</div>`).join("")}
+      ${typeof aiBadge==="function"?aiBadge(e):""}</div>`).join("")
     : `<div class="empty">none detected</div>`;
   const at = s.blue.attempts||[];
   $("attN").textContent = at.length ? `(${at.length})` : "";
@@ -617,8 +653,10 @@ async function refresh(){
 }
 
 async function loadLogs(){
-  try { $("console").textContent = await (await fetch("/api/logs")).text() || "(quiet)"; $("console").scrollTop = 1e9; }
-  catch(e){}
+  try { const t = await (await fetch("/api/logs")).text() || "(quiet)";
+    $("console").textContent = t; $("console").scrollTop = 1e9;
+    const tail=$("ov-logtail"); if(tail){ const L=t.trim().split("\n"); tail.textContent=L.slice(-4).join("\n"); tail.scrollTop=1e9; }
+  } catch(e){}
 }
 async function loadCaptures(){
   let rows=[]; try{ rows = await (await fetch("/api/captures")).json(); }catch(e){}
@@ -704,6 +742,23 @@ function refreshOverview(s){
   $("ov-evil").textContent = (b.evil||[]).length;
   $("ov-att").textContent = (b.attempts||[]).length;
 
+  // phase strip (Recon -> Attack -> Detect -> Warn), lit by current state
+  const _ph=$("ov-phase");
+  if(_ph){
+    const hasTgt=!!(r.target&&r.target.ssid), atk=!!(r.airbase||r.portal),
+          evil=(b.evil||[]).length>0, warn=(b.attempts||[]).length>0;
+    const steps=[["Recon", r.scanning||hasTgt||atk, "cyan"],["Attack", atk, "red"],
+                 ["Detect", b.running||evil, "cyan"],["Warn", warn, "red"]];
+    _ph.innerHTML = steps.map((p,i)=>`<span class="phase ${p[1]?('on '+p[2]):''}">${p[0]}</span>`
+      +(i<steps.length-1?'<span class="phase-sep">›</span>':'')).join("");
+  }
+  // latest attempt + blocklist count (data already in status)
+  const _bl=$("ov-blocked"); if(_bl) _bl.textContent=(b.blocklist||[]).length;
+  const _la=$("ov-last-attempt"), _a=(b.attempts||[])[0];
+  if(_la) _la.innerHTML = _a
+    ? `<b>${esc(_a.device||_a.sta)}</b> reaching for "${esc(_a.ssid)}" <span class="mini">· ${esc(_a.action)} · ${esc(_a.ts)}</span>`
+    : "no connection attempts yet";
+
   const pv=$("pv-status"); if(pv) pv.textContent = (s.red&&s.red.portal) ? "· portal ARMED — serving now" : "· preview (portal not currently serving)";
 
   const withAi=(b.evil||[]).filter(e=>e.ai);
@@ -746,34 +801,51 @@ async function aiTest(){
       const d=$("ai-dot"); if(d) d.className="dot nb-dot ai"; const st=$("ai-stat"); if(st) st.textContent="— offline —"; }
   }catch(e){ $("ai-note").textContent="test failed (is the live console running?)"; }
 }
-// ---- analyst chat ----
-function chatAppend(who,text,cls){
-  const log=$("ai-chatlog"); const em=log.querySelector(".empty"); if(em) log.innerHTML="";
+// ---- AI verdict badge (compact; reused in the Blue list + overview) ----
+function aiBadge(e){
+  const ai=e.ai; if(!ai) return "";
+  const st=ai.status;
+  if(st==="queued"||st==="running") return `<div class="aibadge"><span class="k-ai">AI</span> <span class="pill">analyzing…</span></div>`;
+  if(st==="disabled") return "";
+  if(st && st!=="complete") return `<div class="aibadge mini">AI unavailable — detector verdict stands</div>`;
+  const v=ai.verdict||"uncertain";
+  const col=v==="likely_evil"?"var(--red)":v==="likely_benign"?"var(--green)":"var(--amber)";
+  const sev=Math.max(0,Math.min(5,ai.severity||0));
+  const pips=Array.from({length:5},(_,i)=>`<span class="pip" style="background:${i<sev?'var(--ai)':'#3a4668'}"></span>`).join("");
+  const act=ai.recommended_action?` <span class="mini">→ ${esc(String(ai.recommended_action).replace(/_/g,' '))}</span>`:"";
+  return `<div class="aibadge"><span class="k-ai">AI</span> <span class="pill" style="color:${col};border-color:${col}">${esc(v)}</span> ${pips}`
+    +`${ai.model?` <span class="mini">${esc(ai.model)}</span>`:""}${act}`
+    +`${ai.summary?`<div class="mini" style="margin-top:4px">${esc(ai.summary)}</div>`:""}</div>`;
+}
+// ---- analyst chat (shared core; "ai" tab + "blue" tab) ----
+const _hist={ai:[],blue:[]};
+function chatAppend(ns,who,text,cls){
+  const log=$(ns+"-chatlog"); const em=log.querySelector(".empty"); if(em) log.innerHTML="";
   const d=document.createElement("div"); d.className="msg "+cls;
   d.innerHTML='<span class="who">'+esc(who)+'</span>'+esc(text);
   log.appendChild(d); log.scrollTop=log.scrollHeight; return d;
 }
-let chatHist=[];
-async function aiChat(){
-  const inp=$("ai-chatin"); const msg=(inp.value||"").trim(); if(!msg) return;
-  inp.value=""; chatAppend("you",msg,"me");
-  const pending=chatAppend("analyst","…","ai");
-  const history=chatHist.slice(-6);
+async function chatSend(ns){
+  const inp=$(ns+"-chatin"); const msg=(inp.value||"").trim(); if(!msg) return;
+  inp.value=""; chatAppend(ns,"you",msg,"me");
+  const pending=chatAppend(ns,"analyst","…","ai");
+  const grounded=$(ns+"-grounded")?$(ns+"-grounded").checked:true;
+  const history=_hist[ns].slice(-6);
   try{ const r=await (await fetch("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({message:msg, grounded:$("ai-grounded").checked, history})})).json();
-    if(r && r.ok){
-      pending.innerHTML='<span class="who">analyst'+(r.model?' · '+esc(r.model):'')+'</span>'+esc(r.reply);
-      chatHist.push({role:"user",content:msg},{role:"assistant",content:r.reply});
-      if(chatHist.length>12) chatHist=chatHist.slice(-12);
+      body:JSON.stringify({message:msg, grounded, history})})).json();
+    if(r && r.ok){ pending.innerHTML='<span class="who">analyst'+(r.model?' · '+esc(r.model):'')+'</span>'+esc(r.reply);
+      _hist[ns].push({role:"user",content:msg},{role:"assistant",content:r.reply});
+      if(_hist[ns].length>12) _hist[ns]=_hist[ns].slice(-12);
     } else pending.innerHTML='<span class="who">analyst</span>'+esc((r&&r.error)||"unavailable");
   }catch(e){ pending.innerHTML='<span class="who">analyst</span>chat failed (is the live console running?)'; }
-  $("ai-chatlog").scrollTop=$("ai-chatlog").scrollHeight;
 }
-function aiAsk(q){ $("ai-chatin").value=q; aiChat(); }
+function chatAsk(ns,q){ const i=$(ns+"-chatin"); if(i){ i.value=q; chatSend(ns); } }
+function aiChat(){ chatSend("ai"); }      function aiAsk(q){ chatAsk("ai",q); }
+function blueChat(){ chatSend("blue"); }  function blueAsk(q){ chatAsk("blue",q); }
 function aiWelcome(){
-  const log=$("ai-chatlog"); if(!log || !log.querySelector(".empty")) return;
-  log.innerHTML="";
-  chatAppend("analyst","Defense analyst ready. I can explain any detection, tell you whether to warn or contain, and summarize the situation. Try \"what should I do right now?\" — or start the watch and I'll flag evil twins live.","ai");
+  ["ai","blue"].forEach(function(ns){ const log=$(ns+"-chatlog");
+    if(log && log.querySelector(".empty")){ log.innerHTML="";
+      chatAppend(ns,"analyst","Defense analyst ready. Ask about a detection or what to do next — e.g. \"what should I do right now?\"","ai"); } });
 }
 aiWelcome();
 // ---- incident report ----
