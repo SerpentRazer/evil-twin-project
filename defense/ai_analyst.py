@@ -306,7 +306,7 @@ class AIAnalyst:
 
     # ---- free-form chat + health (analyst Q&A / reports; separate from the
     #      schema-locked verdict path above) ----
-    def chat(self, messages, num_predict=400, timeout=None):
+    def chat(self, messages, num_predict=400, timeout=None, temperature=0.4):
         """Free-form chat (no JSON schema), primary->fallback, bounded.
         Returns (text, model) or (None, None). Advisory only — never acts."""
         if not isinstance(messages, list) or not messages:
@@ -315,8 +315,9 @@ class AIAnalyst:
         for model in (self.primary, self.fallback):
             payload = {"model": model, "messages": messages, "stream": False,
                        "think": False, "keep_alive": self.keep_alive,
-                       "options": {"temperature": 0.3, "num_ctx": self.num_ctx,
-                                   "num_predict": num_predict}}
+                       "options": {"temperature": temperature, "num_ctx": self.num_ctx,
+                                   "num_predict": num_predict,
+                                   "repeat_penalty": 1.3}}   # discourage looping/parroting
             data = json.dumps(payload).encode()
             if len(data) > MAX_REQUEST_BYTES * 4:
                 return None, None
