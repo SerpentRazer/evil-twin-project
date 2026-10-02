@@ -22,3 +22,8 @@ venv/
 memory/
 .claude/
 events.jsonl
+
+# backups of runtime data (e.g. baseline.json.bak-0402) — never publish
+*.bak
+*.bak-*
+baseline.json.*
