@@ -174,6 +174,7 @@
   .pill{display:inline-block;font-size:11.5px;padding:3px 10px;border-radius:12px;background:var(--glass2);color:var(--dim);border:1px solid var(--brd)}
   .pip{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:middle}
   .aibadge{margin-top:8px;padding-top:8px;border-top:1px dashed var(--ai-line)}
+  .aiout{margin-top:10px;padding:12px 14px;border:1px solid var(--ai-line);border-radius:12px;background:var(--glass2);line-height:1.5;font-size:14.5px}
   .k-ai{color:var(--ai);font-weight:800}
   .phase{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);padding:6px 12px;border:1px solid var(--brd);border-radius:999px}
   .phase.on{color:var(--ink);background:var(--glass2);border-color:var(--brd2)}
@@ -325,6 +326,14 @@
         <button class="act stop" id="b-stop" onclick="act('red_stop')">stop all</button>
       </div>
       <div class="mini" style="margin-top:8px">Pick a target from recon, then launch. Authorized / own devices only.</div>
+    </div>
+    <div class="card">
+      <h2>mission analyst <span class="mini">· red-team read of the current situation</span></h2>
+      <div class="row">
+        <button class="act" id="red-ai-go" onclick="redAnalyze('situation')">analyze now</button>
+        <span class="mini" id="red-ai-model"></span>
+      </div>
+      <div id="red-ai-out" class="aiout"><div class="empty">On-demand. Click analyze for a tactical read of recon, target and twin — works without the blue team.</div></div>
     </div>
   </section>
 
@@ -878,6 +887,24 @@ function fmtAnalysis(t){
     if(/^recommendations:/i.test(s)) return `<div style="font-weight:800;margin:9px 0 2px">Recommendations</div>`;
     if(/^[-•]/.test(s)) return `<div style="margin-left:2px">• ${esc(s.replace(/^[-•\s]+/,''))}</div>`;
     return `<div>${esc(s)}</div>`; }).join("");
+}
+// ---- red-team mission analyst (on-demand; separate from the blue verdict path) ----
+async function redAnalyze(mode){
+  const out=$("red-ai-out"), btn=$("red-ai-go");
+  if(out) out.innerHTML = `<div class="empty">analyzing…</div>`;
+  if(btn){ btn.disabled=true; btn.textContent="analyzing…"; }
+  try{
+    const r=await fetch("/api/ai/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({mode:mode||"situation"})});
+    const j=await r.json();
+    if(j.ok){
+      if(out) out.innerHTML = fmtAnalysis(j.text);
+      const m=$("red-ai-model"); if(m) m.textContent = j.model ? "· "+j.model : "";
+    } else if(out){
+      out.innerHTML = `<div class="empty">${esc(j.error||"AI unavailable")}</div>`;
+    }
+  }catch(e){ if(out) out.innerHTML = `<div class="empty">request failed — is the console up?</div>`; }
+  finally{ if(btn){ btn.disabled=false; btn.textContent="analyze now"; } }
 }
 function renderReport(f, analysis, model){
   const cap=f.captures||[], rog=f.active_rogues||[], tl=f.timeline||[];
