@@ -1,0 +1,566 @@
+{
+  "TP-Link_2.4GHz_8B185E": {
+    "40:ed:00:8b:18:5e": {
+      "channel": 1,
+      "crypto": [
+        "OPN"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -81,
+      "rssi_max": -78
+    }
+  },
+  "PRV_GUEST": {
+    "aa:9c:6c:a8:bb:03": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -49,
+      "rssi_max": -45
+    }
+  },
+  "romarketing": {
+    "7e:ac:b9:03:d6:6f": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -64,
+      "rssi_max": -61
+    }
+  },
+  "DIRECT-5H-EPSON-L15160 Series": {
+    "de:cd:2f:7e:96:79": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        6.0,
+        9.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -83,
+      "rssi_max": -76
+    }
+  },
+  "PRV_HOT": {
+    "aa:9c:6c:98:bb:03": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -49,
+      "rssi_max": -45
+    }
+  },
+  "PRV_TECH": {
+    "a8:9c:6c:d8:bb:03": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -54,
+      "rssi_max": -45
+    }
+  },
+  "rmoffice": {
+    "7a:ac:b9:03:d6:6f": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -66,
+      "rssi_max": -60
+    }
+  },
+  "SteamHQ": {
+    "74:fe:ce:c8:37:6d": {
+      "channel": 1,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -79,
+      "rssi_max": -75
+    }
+  },
+  "TP-Link_ADEE": {
+    "3c:52:a1:b4:ad:ee": {
+      "channel": 6,
+      "crypto": [
+        "WPA/PSK",
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -72,
+      "rssi_max": -24
+    }
+  },
+  "canonezel": {
+    "22:0b:74:a6:42:17": {
+      "channel": 6,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -61,
+      "rssi_max": -55
+    }
+  },
+  "VDTnetwork": {
+    "e4:fa:c4:0e:6e:d7": {
+      "channel": 6,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -87,
+      "rssi_max": -82
+    }
+  },
+  "EZEL ": {
+    "62:7f:f0:5a:0a:df": {
+      "channel": 4,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -66,
+      "rssi_max": -65
+    }
+  },
+  "Street Coffee": {
+    "a2:05:d6:e9:03:bd": {
+      "channel": 6,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -76,
+      "rssi_max": -75
+    },
+    "62:83:e7:78:e1:83": {
+      "channel": 8,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -70,
+      "rssi_max": -70
+    }
+  },
+  "SCR": {
+    "9c:05:d6:e9:03:bd": {
+      "channel": 6,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -76,
+      "rssi_max": -75
+    }
+  },
+  "Guest": {
+    "42:ed:00:8b:16:f0": {
+      "channel": 11,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -50,
+      "rssi_max": -44
+    },
+    "42:ed:00:8b:13:ca": {
+      "channel": 11,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -81,
+      "rssi_max": -78
+    },
+    "46:ed:00:8b:1f:20": {
+      "channel": 11,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -90,
+      "rssi_max": -90
+    }
+  },
+  "INNO-GUEST": {
+    "1a:fd:74:d7:d1:c3": {
+      "channel": 9,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -80,
+      "rssi_max": -47
+    }
+  },
+  "Parc Stiintific_Guest": {
+    "40:ed:00:8b:16:f0": {
+      "channel": 11,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -50,
+      "rssi_max": -46
+    },
+    "40:ed:00:8b:13:ca": {
+      "channel": 11,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -82,
+      "rssi_max": -78
+    }
+  },
+  "INNO": {
+    "18:fd:74:d7:d1:c3": {
+      "channel": 9,
+      "crypto": [
+        "WPA2/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -47,
+      "rssi_max": -47
+    }
+  },
+  "Coding Hub Oradea": {
+    "72:7f:f0:5a:0b:c3": {
+      "channel": 10,
+      "crypto": [
+        "WPA3-transition/PSK"
+      ],
+      "rates": [
+        1.0,
+        2.0,
+        5.5,
+        6.0,
+        9.0,
+        11.0,
+        12.0,
+        18.0,
+        24.0,
+        36.0,
+        48.0,
+        54.0
+      ],
+      "ht": false,
+      "rssi_min": -85,
+      "rssi_max": -85
+    }
+  }
+}
