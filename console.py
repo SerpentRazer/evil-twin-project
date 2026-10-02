@@ -256,6 +256,64 @@ def red_select(bssid):
     return True
 
 
+def _seed_baseline_from_recon():
+    """Auto-build the defense baseline from what the recon scan ACTUALLY found —
+    same 'driven by what the adapter sees, nothing hardcoded' idea as the defense
+    Learn→Guard, applied to the attack side. Merges (never overwrites) the live
+    APs into baseline.json so, before the attack, the baseline already reflects
+    the real networks on air and the twin you launch is a twin of a KNOWN SSID.
+
+    Guard: skipped while the twin is LIVE, so we never record our own rogue as
+    legitimate (the same 'learn with the attacker off' rule the defense uses)."""
+    if red_status().get("airbase"):
+        ops.log("baseline seed skipped — twin is LIVE (scan before launching, so the rogue isn't learned as legit)")
+        return 0
+    try:
+        from evil_twin_detect import load_baseline, save_baseline, _blank_entry
+    except Exception as e:
+        ops.log(f"baseline seed unavailable: {e}")
+        return 0
+    with ops._lock:
+        found = list(ops.TARGETS)
+    if not found:
+        return 0
+    baseline = load_baseline()
+    seeded = 0
+    for ap in found:
+        ssid = ap.get("ssid")
+        bssid = (ap.get("bssid") or "").lower()
+        if not ssid or ssid == "<hidden>" or not bssid:
+            continue
+        enc = (ap.get("enc") or "").strip().upper()
+        crypto = [] if enc in ("", "OPN", "OPEN") else [enc.replace(" ", "/")]
+        entry = baseline.setdefault(ssid, {}).setdefault(bssid, _blank_entry())
+        # Only fill what recon can see; never clobber richer scapy-learned fields.
+        if entry.get("channel") is None and ap.get("channel") is not None:
+            entry["channel"] = ap["channel"]
+        if not entry.get("crypto") and crypto:
+            entry["crypto"] = crypto
+        rssi = ap.get("power")
+        if isinstance(rssi, int) and -120 <= rssi <= 0:
+            entry["rssi_min"] = rssi if entry["rssi_min"] is None else min(entry["rssi_min"], rssi)
+            entry["rssi_max"] = rssi if entry["rssi_max"] is None else max(entry["rssi_max"], rssi)
+        seeded += 1
+    try:
+        save_baseline(baseline)
+    except Exception as e:
+        ops.log(f"baseline save failed: {e}")
+        return 0
+    ops.log(f"baseline auto-seeded from recon: {seeded} live AP(s) merged → "
+            f"{len(baseline)} known SSIDs (defense ready, nothing hardcoded)")
+    return seeded
+
+
+def red_scan():
+    """Recon, then auto-seed the baseline from what was found (attack side mirror
+    of the defense Learn→Guard: the adapter's live findings drive the baseline)."""
+    ops.real_scan()
+    _seed_baseline_from_recon()
+
+
 # ============================================================ BLUE TEAM ====
 
 def blue_start(learn_seconds=0):
@@ -1072,7 +1130,7 @@ def api_action():
     action = body.get("action")
     ok = True
     if action == "red_scan":
-        threading.Thread(target=ops.real_scan, daemon=True).start()
+        threading.Thread(target=red_scan, daemon=True).start()
     elif action == "red_select":
         ok = red_select(body.get("bssid"))
     elif action == "red_launch":
