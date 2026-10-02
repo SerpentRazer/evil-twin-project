@@ -21,3 +21,4 @@ venv/
 # Internal context — not project code, contains personal data
 memory/
 .claude/
+events.jsonl

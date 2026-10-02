@@ -449,12 +449,12 @@
 
     <div class="card">
       <h2>incident report <button class="act" style="margin-left:auto" onclick="aiReport()">generate</button></h2>
-      <div id="ai-report"><div class="empty">Generate an AI after-action summary of this session for the judges.</div></div>
+      <div id="ai-report"><div class="empty">Generate an after-action incident report for this session</div></div>
     </div>
 
     <div class="card">
       <h2>AI verdicts</h2>
-      <div id="ai-list"><div class="empty">no detections yet — verdicts appear here when the blue team flags a rogue.</div></div>
+      <div id="ai-list"><div class="empty">no detections yet, verdicts appear here when the blue team flags a rogue.</div></div>
     </div>
   </section>
 </main>
@@ -767,7 +767,7 @@ function refreshOverview(s){
     : `<div class="empty">No detections yet.</div>`;
   const list=$("ai-list");
   if(list) list.innerHTML = withAi.length ? withAi.map(aiVerdictHtml).join("")
-    : `<div class="empty">no detections yet — verdicts appear here when the blue team flags a rogue.</div>`;
+    : `<div class="empty">no detections yet, verdicts appear here when the blue team flags a rogue.</div>`;
 
   // AI status from backend (live)
   const ai=s.ai||{}; const en=ai.enabled!==false; const online=ai.online===true;
@@ -848,13 +848,52 @@ function aiWelcome(){
       chatAppend(ns,"analyst","Defense analyst ready. Ask about a detection or what to do next — e.g. \"what should I do right now?\"","ai"); } });
 }
 aiWelcome();
-// ---- incident report ----
+// ---- incident report (structured, analyst-grade) ----
 async function aiReport(){
   $("ai-report").innerHTML='<div class="empty">generating…</div>';
   try{ const r=await (await fetch("/api/ai/report",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
-    if(r && r.ok) $("ai-report").textContent=r.report;
+    if(r && r.ok && r.facts){ window._lastReport=r.report||""; $("ai-report").innerHTML=renderReport(r.facts, r.analysis, r.model); }
+    else if(r && r.ok){ $("ai-report").textContent=r.report||""; }
     else $("ai-report").innerHTML='<div class="empty">report unavailable'+(r&&r.error?": "+esc(r.error):"")+'</div>';
   }catch(e){ $("ai-report").innerHTML='<div class="empty">report failed (is the live console running?)</div>'; }
+}
+function copyReport(){ try{ navigator.clipboard.writeText(window._lastReport||""); }catch(_){ } }
+function irStat(n,l,c){ return `<div style="display:flex;flex-direction:column">`
+  +`<b style="font-size:26px;font-weight:800;line-height:1;color:${c||'var(--ink)'}">${n}</b>`
+  +`<span class="mini" style="text-transform:uppercase;letter-spacing:.6px">${l}</span></div>`; }
+function irHead(t){ return `<div class="mini" style="margin:12px 0 5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim)">${t}</div>`; }
+function fmtAnalysis(t){
+  return String(t||"").split("\n").map(function(line){ const s=line.trim(); if(!s) return "";
+    if(/^summary:/i.test(s)) return `<div style="font-weight:800;margin:4px 0 2px">Summary</div><div>${esc(s.replace(/^summary:\s*/i,''))}</div>`;
+    if(/^recommendations:/i.test(s)) return `<div style="font-weight:800;margin:9px 0 2px">Recommendations</div>`;
+    if(/^[-•]/.test(s)) return `<div style="margin-left:2px">• ${esc(s.replace(/^[-•\s]+/,''))}</div>`;
+    return `<div>${esc(s)}</div>`; }).join("");
+}
+function renderReport(f, analysis, model){
+  const cap=f.captures||[], rog=f.active_rogues||[], tl=f.timeline||[];
+  const sev = cap.length? "HIGH" : (f.evil_flagged? "MEDIUM" : "LOW");
+  const sevCol = sev==="HIGH"?"var(--red)":sev==="MEDIUM"?"var(--amber)":"var(--green)";
+  let h = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">`
+    +`<b style="font-size:16px">Incident Report</b>`
+    +`<span class="pill" style="color:${sevCol};border-color:${sevCol};font-weight:700">${sev}</span>`
+    +`<span class="mini" style="margin-left:auto">${esc(f.generated||'')}${model?' · '+esc(model):''} `
+    +`<button class="act" style="padding:4px 10px;font-size:12px;margin-left:6px" onclick="copyReport()">copy</button></span></div>`;
+  h += `<div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:6px">`
+    + irStat(f.evil_flagged,"evil twins", f.evil_flagged?'var(--red)':'')
+    + irStat(f.attempts,"attempts", f.attempts?'var(--amber)':'')
+    + irStat(cap.length,"creds captured", cap.length?'var(--red)':'')
+    + irStat(f.blocklisted,"blocklisted", 'var(--cyan)') + `</div>`;
+  h += `<div class="mini">defense on this console: <b>${f.defense_running?'yes':'no'}</b> · attack target: <b>${esc(f.target||'none')}</b></div>`;
+  if(cap.length){ h += irHead("captured credentials");
+    h += cap.slice(-8).map(function(c){ const fl=c.fields||{}; const got=Object.keys(fl).filter(k=>fl[k]).join(", ")||"data";
+      return `<div class="mini">• <b>${esc(c.hostname||c.ip||'device')}</b>: ${esc(got)} <span class="mut">(${esc(c.ts||'')})</span></div>`; }).join(""); }
+  if(rog.length){ h += irHead("active flagged rogues");
+    h += rog.slice(0,6).map(aiVerdictHtml).join(""); }
+  if(tl.length){ h += irHead("timeline");
+    h += `<div class="mono" style="font:12px/1.55 var(--mono);white-space:pre-wrap;max-height:170px;overflow:auto;color:#a9c0d6;border:1px solid var(--brd);border-radius:10px;padding:10px">`
+      + tl.map(function(e){ return esc(e.ts||'')+"  "+esc(e.line||''); }).join("\n") + `</div>`; }
+  if(analysis){ h += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--brd)">`+fmtAnalysis(analysis)+`</div>`; }
+  return h;
 }
 
 // resizable log rail (drag left edge; width remembered)
