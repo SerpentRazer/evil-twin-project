@@ -70,6 +70,7 @@ TAILNET_IP = _tailnet_ip()
 ENV_ATTACK = os.environ.get("CON_ATTACK_IFACE")
 ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
 LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
+LEARN_ON_START = int(os.environ.get("CON_LEARN_SECONDS", "45"))  # Learn→Guard: default baseline-learn seconds at defense start (0 = skip, use existing baseline)
 
 # Injection/AP quality by driver — used only to order the NON-Atheros adapters
 # when picking ATTACK (the Atheros is pinned to DEFENSE by policy in
@@ -92,7 +93,9 @@ app = Flask(__name__)
 
 # ---------------- unified console log ----------------
 
-_blue = {"sniffer": None, "hop_stop": None, "running": False}
+_blue = {"sniffer": None, "learn_sniffer": None, "learn_timer": None,
+         "hop_stop": None, "running": False,
+         "phase": "off", "learn_until": 0.0, "learn_seconds": 0}
 
 
 def merged_logs():
@@ -255,7 +258,7 @@ def red_select(bssid):
 
 # ============================================================ BLUE TEAM ====
 
-def blue_start():
+def blue_start(learn_seconds=0):
     if _blue["running"]:
         return False
     busy = iface_busy_by_other("defense")
@@ -267,8 +270,9 @@ def blue_start():
         from scapy.all import (AsyncSniffer, Dot11, Dot11Beacon, Dot11Auth,
                                Dot11AssoReq, Dot11ReassoReq)
         import itertools
-        from evil_twin_detect import (load_baseline, fingerprint, get_rssi,
-                                      get_ssid, classify_new_bssid, MIN_BEACONS_NEW)
+        from evil_twin_detect import (load_baseline, save_baseline, _blank_entry,
+                                      fingerprint, get_rssi, get_ssid,
+                                      classify_new_bssid, MIN_BEACONS_NEW)
     except Exception as e:
         guard.clog(f"!! cannot start defense: {e}", "detect")
         return False
@@ -290,11 +294,11 @@ def blue_start():
                 subprocess.call(["bash", "-c", c + " >/dev/null 2>&1 || true"])
     except Exception as e:
         guard.clog(f"!! could not verify monitor mode on {dif}: {e}", "detect")
+    # Shared baseline dict: the LEARN phase merges new networks into it and the
+    # WATCH phase reads from the same object, so a learn done here protects
+    # whatever is on air now (change venue -> relearn -> guards the new network).
     baseline = load_baseline()
     guard.STATE["known"] = len(baseline)
-    guard.clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {dif}")
-    if not baseline:
-        guard.clog("!! no baseline.json — run the detector's learn mode first", "detect")
 
     candidates, cand_rssi = {}, {}
     hop_stop = threading.Event()
@@ -310,7 +314,25 @@ def blue_start():
             time.sleep(0.8)
     threading.Thread(target=hopper, daemon=True).start()
 
-    def handle(pkt):
+    # ---- LEARN handler: merge every beacon's fingerprint + RSSI corridor into
+    #      the baseline (same logic as evil_twin_detect.run_learn). ----
+    def learn_handle(pkt):
+        if not pkt.haslayer(Dot11Beacon):
+            return
+        bssid = (pkt[Dot11].addr2 or "").lower()
+        ssid = get_ssid(pkt, Dot11Beacon)
+        if not bssid or not ssid:
+            return
+        fp = fingerprint(pkt)
+        rssi = get_rssi(pkt)
+        entry = baseline.setdefault(ssid, {}).setdefault(bssid, _blank_entry())
+        entry.update({k: fp[k] for k in ("channel", "crypto", "rates", "ht")})
+        if rssi is not None:
+            entry["rssi_min"] = rssi if entry["rssi_min"] is None else min(entry["rssi_min"], rssi)
+            entry["rssi_max"] = rssi if entry["rssi_max"] is None else max(entry["rssi_max"], rssi)
+
+    # ---- WATCH handler: flag a NEW BSSID for a KNOWN SSID as a possible twin. ----
+    def watch_handle(pkt):
         if pkt.haslayer(Dot11Auth) or pkt.haslayer(Dot11AssoReq) or pkt.haslayer(Dot11ReassoReq):
             d = pkt.getlayer(Dot11)
             ap, sta = (d.addr1 or "").lower(), (d.addr2 or "").lower()
@@ -336,21 +358,92 @@ def blue_start():
         if verdict == "evil":
             guard.on_evil_twin(bssid, ssid, fp.get("channel"), fp.get("crypto"), reasons)
 
-    sniffer = AsyncSniffer(iface=dif, prn=handle, store=False)
-    try:
-        sniffer.start()
-    except Exception as e:
-        hop_stop.set()
-        guard.clog(f"!! sniff failed on {dif} (monitor mode up?): {e}", "detect")
-        return False
-    _blue["sniffer"] = sniffer
+    def start_watch():
+        """Flip from learning to guarding: open the watch sniffer, then warm the LLM."""
+        if not _blue["running"]:                 # stopped before we got here
+            return
+        guard.STATE["known"] = len(baseline)
+        try:
+            sniffer = AsyncSniffer(iface=dif, prn=watch_handle, store=False)
+            sniffer.start()
+        except Exception as e:
+            hop_stop.set()
+            _blue["running"] = False
+            _blue["phase"] = "off"
+            guard.clog(f"!! sniff failed on {dif} (monitor mode up?): {e}", "detect")
+            return
+        _blue["sniffer"] = sniffer
+        _blue["phase"] = "guarding"
+        guard.clog(f"DEFENSE ACTIVE — guarding {len(baseline)} known networks on {dif}")
+        if not baseline:
+            guard.clog("!! baseline empty — learn with the attacker OFF to protect real networks", "detect")
+        # Everything is up: warm the advisory LLM so the first verdict is instant.
+        threading.Thread(target=warm_ai, daemon=True).start()
+
     _blue["running"] = True
+    _blue["learn_seconds"] = max(0, int(learn_seconds or 0))
+
+    if _blue["learn_seconds"] > 0:
+        _blue["phase"] = "learning"
+        _blue["learn_until"] = time.time() + _blue["learn_seconds"]
+        try:
+            lsn = AsyncSniffer(iface=dif, prn=learn_handle, store=False)
+            lsn.start()
+        except Exception as e:
+            hop_stop.set()
+            _blue["running"] = False
+            _blue["phase"] = "off"
+            guard.clog(f"!! learn sniff failed on {dif} (monitor mode up?): {e}", "detect")
+            return False
+        _blue["learn_sniffer"] = lsn
+        guard.clog(f"LEARNING baseline for {_blue['learn_seconds']}s on {dif} — keep the ATTACKER OFF "
+                   f"(merges into {len(baseline)} known SSIDs)", "detect")
+
+        def finish_learn():
+            if not _blue["running"]:              # stopped mid-learn
+                return
+            ls = _blue.get("learn_sniffer")
+            if ls:
+                try:
+                    ls.stop()
+                except Exception:
+                    pass
+            _blue["learn_sniffer"] = None
+            try:
+                save_baseline(baseline)
+            except Exception as e:
+                guard.clog(f"!! baseline save failed: {e}", "detect")
+            guard.clog(f"learn done — baseline now {len(baseline)} SSIDs / "
+                       f"{sum(len(v) for v in baseline.values())} BSSIDs", "detect")
+            start_watch()
+
+        t = threading.Timer(_blue["learn_seconds"], finish_learn)
+        t.daemon = True
+        _blue["learn_timer"] = t
+        t.start()
+    else:
+        start_watch()
+        if not _blue["running"]:                  # start_watch failed
+            return False
     return True
 
 
 def blue_stop():
     if not _blue["running"]:
         return False
+    _blue["running"] = False          # set first so a firing learn-timer aborts
+    if _blue.get("learn_timer"):
+        try:
+            _blue["learn_timer"].cancel()
+        except Exception:
+            pass
+        _blue["learn_timer"] = None
+    if _blue.get("learn_sniffer"):
+        try:
+            _blue["learn_sniffer"].stop()
+        except Exception:
+            pass
+        _blue["learn_sniffer"] = None
     if _blue["hop_stop"]:
         _blue["hop_stop"].set()
     if _blue["sniffer"]:
@@ -358,8 +451,9 @@ def blue_stop():
             _blue["sniffer"].stop()
         except Exception:
             pass
+        _blue["sniffer"] = None
+    _blue["phase"] = "off"
     guard.STATE["pinned_channel"] = None
-    _blue["running"] = False
     guard.clog("defense stopped — radio released")
     return True
 
@@ -471,6 +565,25 @@ def get_ai():
             except Exception:
                 _ai["analyst"] = None
         return _ai["analyst"]
+
+
+def warm_ai():
+    """Proactively load the LLM into memory so the first real verdict isn't a
+    cold-start. get_ai() creates+starts the analyst (its .start() fires an
+    internal _warmup that pins the model via keep_alive); the ping confirms
+    reachability for the dashboard. Advisory only, best-effort — never blocks."""
+    if AIAnalyst is None or not _ai["enabled"]:
+        return
+    ai = get_ai()
+    if not ai:
+        return
+    try:
+        ok, detail = ai.ping()
+        _ai["online"] = ok
+        guard.clog(f"AI LIVE at {ai.url} — {len(detail)} model(s), warming up {ai.primary}"
+                   if ok else f"AI unreachable at {ai.url} — {detail}", "ai")
+    except Exception:
+        pass
 
 
 def _incident_from_evil(e):
@@ -705,6 +818,10 @@ def unified_status():
                 "portal": r.get("portal"), "monitor": r.get("monitor")},
         "blue": {"running": _blue["running"], "contain": g.get("contain"),
                  "known": g.get("known"), "pinned_channel": g.get("pinned_channel"),
+                 "phase": _blue.get("phase", "off"),
+                 "learn_seconds": _blue.get("learn_seconds", 0),
+                 "learn_remaining": (max(0, int(round(_blue["learn_until"] - time.time())))
+                                     if _blue.get("phase") == "learning" else 0),
                  "evil": g.get("evil"), "blocklist": g.get("blocklist"),
                  "attempts": g.get("attempts"), "ntfy": g.get("ntfy")},
         "captures": r.get("captures", 0),
@@ -971,7 +1088,9 @@ def api_action():
     elif action == "red_stop":
         threading.Thread(target=ops.real_stop, daemon=True).start()
     elif action == "blue_start":
-        ok = blue_start()
+        ls = body.get("learn_seconds")
+        ls = LEARN_ON_START if ls is None else max(0, int(ls))
+        ok = blue_start(learn_seconds=ls)
     elif action == "blue_stop":
         ok = blue_stop()
     elif action == "blue_toggle":
