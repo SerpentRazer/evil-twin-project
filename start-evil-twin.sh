@@ -7,8 +7,8 @@
 
 set -euo pipefail
 
-SSID="${ET_SSID:-HackTech-Free-WiFi}"       # panel/ops sets ET_SSID to impersonate a target
-CHANNEL="${ET_CHANNEL:-6}"                   # panel/ops sets ET_CHANNEL to match its channel
+SSID="${ET_SSID:-}"                          # REQUIRED — ops/console sets it from the SCANNED target (no hardcoded name)
+CHANNEL="${ET_CHANNEL:-}"                     # REQUIRED — comes from that target's real channel
 IFACE="${ET_IFACE:-wlan1}"                   # AR9271 (ath9k_htc); wlan0 here is the Intel net card — leave it online
 MONIFACE="$IFACE"                            # NM-safe monitor keeps the same name
 AT0_IP="10.0.0.1/24"
@@ -21,6 +21,17 @@ PIDFILE_PORTAL="/tmp/evil-twin-portal.pid"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run this with sudo: sudo $0"
+  exit 1
+fi
+
+# No hardcoded target: SSID + channel MUST come from a live recon pick (ET_SSID/ET_CHANNEL).
+if [[ -z "$SSID" ]]; then
+  echo "ERROR: ET_SSID is empty. Pick a target from the recon scan first — nothing is hardcoded."
+  echo "       e.g. sudo ET_SSID='Some-Scanned-SSID' ET_CHANNEL=6 $0"
+  exit 1
+fi
+if ! [[ "$CHANNEL" =~ ^[0-9]+$ ]] || (( CHANNEL < 1 || CHANNEL > 14 )); then
+  echo "ERROR: ET_CHANNEL must be the scanned target's channel (1-14), got '${CHANNEL:-unset}'."
   exit 1
 fi
 
