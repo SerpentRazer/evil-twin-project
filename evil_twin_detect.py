@@ -39,7 +39,8 @@ timestamps for accuracy; unreliable with a USB adapter in a VM + channel
 hopping — produces false skews in the hundreds/thousands of ppm when real
 drift is only tens of ppm, so it's intentionally left out). Also out of
 scope for one passive adapter: sequence-number cross-check, triangulation,
-RTT/gateway validation, 802.1X/RADIUS cert validation. 2.4GHz ch 1/6/11 only.
+RTT/gateway validation, 802.1X/RADIUS cert validation. 2.4GHz only (sweeps the
+whole band, channels 1-13 by default; see CHANNELS / ET_CHANNELS).
 
 Usage:
     sudo python3 evil_twin_detect.py --learn 60      # build/refresh baseline
@@ -157,6 +158,27 @@ def get_ssid(pkt, layer):
     except Exception:
         return ""
 
+def beacon_fingerprint(pkt, layer=Dot11Beacon):
+    """Parse a beacon / probe-response ONCE and return (ssid, fingerprint).
+
+    network_stats() walks every 802.11 information element, so getting the SSID
+    via get_ssid() and the fingerprint via fingerprint() parsed each frame
+    twice on the hot path (one pass per beacon, per engine). This does it a
+    single time. has_ht() still walks the IEs for the 802.11n bit, which
+    network_stats() does not expose."""
+    try:
+        stats = pkt[layer].network_stats()
+    except Exception:
+        stats = {}
+    rates = stats.get("rates")
+    fp = {
+        "channel": stats.get("channel"),
+        "crypto": sorted(stats.get("crypto", [])),
+        "rates": sorted(rates) if rates else [],
+        "ht": has_ht(pkt),
+    }
+    return stats.get("ssid", ""), fp
+
 # ---------------- baseline I/O ----------------
 
 def load_baseline():
@@ -206,10 +228,9 @@ def run_learn(duration):
         if not pkt.haslayer(Dot11Beacon):
             return
         bssid = pkt[Dot11].addr2
-        ssid = get_ssid(pkt, Dot11Beacon)
+        ssid, fp = beacon_fingerprint(pkt, Dot11Beacon)
         if not bssid or not ssid:
             return
-        fp = fingerprint(pkt)
         rssi = get_rssi(pkt)
         entry = baseline.setdefault(ssid, {}).setdefault(bssid, _blank_entry())
         entry.update({k: fp[k] for k in ("channel", "crypto", "rates", "ht")})
@@ -314,6 +335,7 @@ def run_watch(baseline):
     deauth_alerted = {}
     probe_ssids = defaultdict(dict)
     probe_alerted = {}
+    _last_prune = [0.0]       # periodic cleanup of the per-source maps above
 
     # live inventory of every AP currently on air (bssid -> info), plus the set
     # of BSSIDs confirmed as evil twins and a rolling log of recent alerts.
@@ -432,6 +454,23 @@ def run_watch(baseline):
     def handle(pkt):
         now = time.time()
 
+        # Periodic cleanup so the per-source tracking maps don't grow unbounded
+        # on a long run — transient deauth sources and probing BSSIDs come and
+        # go, and their keys lingered forever once their deque/dict went stale.
+        # Runs on the sniff thread like the rest of handle(), so needs no lock.
+        if now - _last_prune[0] > STALE_AFTER:
+            _last_prune[0] = now
+            for s in [s for s, dq in deauth_events.items()
+                      if not dq or now - dq[-1] > STALE_AFTER]:
+                deauth_events.pop(s, None)
+            for s in [s for s, t in deauth_alerted.items() if now - t > STALE_AFTER]:
+                deauth_alerted.pop(s, None)
+            for b in [b for b, d in probe_ssids.items()
+                      if not d or now - max(d.values()) > STALE_AFTER]:
+                probe_ssids.pop(b, None)
+            for b in [b for b, t in probe_alerted.items() if now - t > STALE_AFTER]:
+                probe_alerted.pop(b, None)
+
         if pkt.haslayer(Dot11Deauth):
             src = pkt[Dot11].addr2 or pkt[Dot11].addr3
             if src:
@@ -461,11 +500,10 @@ def run_watch(baseline):
         if not pkt.haslayer(Dot11Beacon):
             return
         bssid = pkt[Dot11].addr2
-        ssid = get_ssid(pkt, Dot11Beacon)
+        ssid, fp = beacon_fingerprint(pkt, Dot11Beacon)
         if not bssid or not ssid:
             return
         rssi = get_rssi(pkt)
-        fp = fingerprint(pkt)
 
         # record EVERY beacon into the live inventory (this is the full list the
         # dashboard shows) — before any known/candidate filtering below.

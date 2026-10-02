@@ -26,6 +26,7 @@ from flask import Flask, request, Response
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                       # repo root (scripts live here)
 PORT = int(os.environ.get("OPS_PORT", "8080"))
+BIND = os.environ.get("OPS_BIND", "0.0.0.0")   # control-panel bind; set 127.0.0.1 to restrict
 IFACE = os.environ.get("OPS_IFACE", "wlan1")     # AR9271 (ath9k_htc); NOT wlan0 (Intel net card)
 SCAN_SECS = int(os.environ.get("OPS_SCAN_SECS", "8"))
 LOG_DIR = "/tmp/evil-twin-logs"
@@ -35,15 +36,16 @@ app = Flask(__name__)
 
 # ---------------- shared state ----------------
 _lock = threading.Lock()
-CONSOLE = deque(maxlen=600)          # (ts, line) rolling operator console
+CONSOLE = deque(maxlen=600)          # (epoch, ts, line) rolling operator console
 TARGETS = []                         # scanned APs
 TARGET = {}                          # chosen impersonation target
 PROCS = {}                           # src -> Popen
 
 def log(line, src="ops"):
-    stamp = time.strftime("%H:%M:%S")
+    now = time.time()
+    stamp = time.strftime("%H:%M:%S", time.localtime(now))
     with _lock:
-        CONSOLE.append((stamp, f"{line}" if src == "ops" else f"[{src}] {line}"))
+        CONSOLE.append((now, stamp, f"{line}" if src == "ops" else f"[{src}] {line}"))
     print(f"{stamp} {line}", flush=True)
 
 
@@ -213,7 +215,7 @@ def api_status():
 @app.route("/api/logs")
 def api_logs():
     with _lock:
-        lines = [f"{t}  {l}" for t, l in CONSOLE]
+        lines = [f"{t}  {l}" for _e, t, l in CONSOLE]
     return Response("\n".join(lines), mimetype="text/plain")
 
 
@@ -245,4 +247,7 @@ def api_action():
 
 if __name__ == "__main__":
     log(f"operator console up on :{PORT}  mode=LIVE")
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+    if BIND == "0.0.0.0":
+        log("!! operator console on 0.0.0.0 — reachable by ANYONE on the network, no auth. "
+            "Set OPS_BIND=127.0.0.1 to restrict it.")
+    app.run(host=BIND, port=PORT, threaded=True)

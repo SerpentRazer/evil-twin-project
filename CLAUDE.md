@@ -12,8 +12,9 @@ Kali sensor (this box) --UDP JSON--> Mac M4 dashboard <--HTTP--> Mac Mini (Ollam
 ```
 
 Only the Kali side lives here. The M4 dashboard and Mac Mini LLM are other people's
-machines; we push events to them and never build their side. Not a git repo, no build
-step, no test suite — a single Python script plus bash wrappers, run live with `sudo`.
+machines; we push events to them and never build their side. No build step and no test
+suite — a single Python script plus bash wrappers, run live with `sudo`. (Public mirror:
+github.com/SerpentRazer/evil-twin-wids — runtime data stays gitignored.)
 
 ## Running it
 
@@ -56,8 +57,9 @@ The script reads these — `start-detector.sh` sets `ET_IFACE`; the rest are set
 
 ## Architecture of `evil_twin_detect.py`
 
-Two phases over one passive adapter, scoped to **2.4 GHz channels 1/6/11 only** (a
-background thread hops between them every 0.8s):
+Two phases over one passive adapter, sweeping the **whole 2.4 GHz band (channels 1–13)**
+by default so a twin is caught on any channel (override with `ET_CHANNELS`); a background
+thread hops between them every `ET_HOP_DWELL` seconds (default 0.4s):
 
 - **LEARN** (`run_learn`) — sniff beacons for N seconds, record `SSID → {BSSID → fingerprint}`
   into `baseline.json`. Fingerprint = channel, crypto, supported rates, HT (802.11n) bit,

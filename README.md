@@ -52,8 +52,7 @@ sudo ./start-console.sh            # unified console at http://127.0.0.1:8080
 
 Demo flow (one screen): **BLUE** start defense → **RED** scan → 🎯 impersonate a target
 you control → launch evil twin → a test phone joins → captive portal captures creds,
-**BLUE** flags the twin red, warns, and (if containment is on) deauths it. A 🎬 **STAGE**
-overlay narrates the five steps for a projector.
+**BLUE** flags the twin red, warns, and (if containment is on) deauths it.
 
 The detector needs a clean baseline of the venue (learn with the attacker off):
 
@@ -67,7 +66,7 @@ sudo ./start-detector.sh learn 60   # then watch
 
 | Path | Role |
 |---|---|
-| `console.py` / `console.html` | unified web console (:8080) — RED / BLUE / CAPTURES + AI panel, multi-radio role manager, radio watchdog, stage mode |
+| `console.py` / `console.html` | unified web console (:8080) — RED / BLUE / CAPTURES + AI panel, multi-radio role manager, radio watchdog |
 | `evil_twin_detect.py` | passive detector — infra-aware scoring (benign / review / evil) |
 | `defense/guardian.py` | blue engine — detect, blocklist, device fingerprint, alert fan-out, containment, `known_devices.json` routing |
 | `defense/ai_analyst.py` | LLM analyst (Ollama; dual-model with fallback) + verdict/chat |

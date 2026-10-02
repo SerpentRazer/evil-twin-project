@@ -31,6 +31,7 @@ sys.path.insert(0, ROOT)                         # to reuse the detector's logic
 
 CONTAIN = os.environ.get("DEF_CONTAIN", "0") == "1"
 PORT = int(os.environ.get("DEF_PORT", "8081"))
+BIND = os.environ.get("DEF_BIND", "0.0.0.0")   # dashboard bind; set 127.0.0.1 to restrict
 IFACE = os.environ.get("DEF_IFACE", "wlan0mon")
 NTFY_TOPIC = os.environ.get("DEF_NTFY_TOPIC", "")     # e.g. "raz-evil-twin-alerts"
 NTFY_URL = os.environ.get("DEF_NTFY_URL", "https://ntfy.sh")
@@ -52,9 +53,10 @@ STATE = {"active": True, "contain": CONTAIN, "known": 0, "known_devices": 0,
 # ---------------- alerting fan-out ----------------
 
 def clog(line, tag="def"):
-    ts = time.strftime("%H:%M:%S")
+    now = time.time()
+    ts = time.strftime("%H:%M:%S", time.localtime(now))
     with _lock:
-        CONSOLE.append((ts, line if tag == "def" else f"[{tag}] {line}"))
+        CONSOLE.append((now, ts, line if tag == "def" else f"[{tag}] {line}"))
     print(f"{ts} {line}", flush=True)
 
 
@@ -262,8 +264,9 @@ def live_engine():
     from scapy.all import (sniff, Dot11, Dot11Beacon, Dot11Auth, Dot11AssoReq,
                            Dot11ReassoReq, RadioTap)
     import itertools
-    from evil_twin_detect import (load_baseline, fingerprint, get_rssi, get_ssid,
-                                  classify_new_bssid, MIN_BEACONS_NEW, CHANNELS, HOP_DWELL)
+    from evil_twin_detect import (load_baseline, beacon_fingerprint, get_rssi,
+                                  classify_new_bssid, _blank_entry,
+                                  MIN_BEACONS_NEW, STALE_AFTER, CHANNELS, HOP_DWELL)
 
     baseline = load_baseline()
     STATE["known"] = len(baseline)
@@ -272,7 +275,8 @@ def live_engine():
     if not baseline:
         clog("!! no baseline.json — run the detector's learn mode first for best results", "detect")
 
-    candidates, cand_rssi = {}, {}
+    candidates, cand_rssi, classified = {}, {}, set()
+    cand_seen, _last_prune = {}, [0.0]    # bssid -> last-seen ts, for pruning stale candidates
 
     def hopper():
         # Always sweep every channel — never lock onto one rogue, so a SECOND
@@ -300,23 +304,43 @@ def live_engine():
         # --- evil-twin discovery ---
         if not pkt.haslayer(Dot11Beacon):
             return
+        now = time.time()
+        # Drop candidates that never reached a verdict and have gone off air, so
+        # the candidate maps don't grow unbounded on a long run.
+        if now - _last_prune[0] > STALE_AFTER:
+            _last_prune[0] = now
+            for b in [b for b, t in cand_seen.items() if now - t > STALE_AFTER]:
+                cand_seen.pop(b, None)
+                candidates.pop(b, None)
+                cand_rssi.pop(b, None)
         bssid = (pkt[Dot11].addr2 or "").lower()
-        ssid = get_ssid(pkt, Dot11Beacon)
+        if bssid in EVIL or bssid in classified:   # already ruled on — don't re-score every beacon
+            return
+        ssid, fp = beacon_fingerprint(pkt, Dot11Beacon)
         if not bssid or not ssid or ssid not in baseline or bssid in baseline[ssid]:
             return
-        if bssid in EVIL:
-            return
         rssi = get_rssi(pkt)
-        fp = fingerprint(pkt)
-        key = bssid
-        candidates[key] = candidates.get(key, 0) + 1
+        candidates[bssid] = candidates.get(bssid, 0) + 1
+        cand_seen[bssid] = now
         if rssi is not None:
-            cand_rssi[key] = rssi if cand_rssi.get(key) is None else max(cand_rssi[key], rssi)
-        if candidates[key] < MIN_BEACONS_NEW:
+            cand_rssi[bssid] = rssi if cand_rssi.get(bssid) is None else max(cand_rssi[bssid], rssi)
+        if candidates[bssid] < MIN_BEACONS_NEW:
             return
-        verdict, conf, reasons = classify_new_bssid(bssid, cand_rssi.get(key, rssi), fp, baseline[ssid])
+        verdict, conf, reasons = classify_new_bssid(bssid, cand_rssi.get(bssid, rssi), fp, baseline[ssid])
+        # verdict reached: drop the candidate counters and never re-score this BSSID.
+        candidates.pop(bssid, None)
+        cand_rssi.pop(bssid, None)
+        cand_seen.pop(bssid, None)
+        classified.add(bssid)
         if verdict == "evil":
             on_evil_twin(bssid, ssid, fp.get("channel"), fp.get("crypto"), reasons)
+        elif verdict == "benign":
+            # same operator's hardware the learn missed — fold into the baseline so
+            # the beacon guard above short-circuits it (matches evil_twin_detect.run_watch).
+            baseline[ssid][bssid] = {**_blank_entry(),
+                                     **{k: fp.get(k) for k in ("channel", "crypto", "rates", "ht")}}
+            if rssi is not None:
+                baseline[ssid][bssid]["rssi_min"] = baseline[ssid][bssid]["rssi_max"] = rssi
 
     sniff(iface=IFACE, prn=handle, store=False)
 
@@ -349,7 +373,7 @@ def api_state():
 @app.route("/api/logs")
 def api_logs():
     with _lock:
-        return Response("\n".join(f"{t}  {l}" for t, l in CONSOLE), mimetype="text/plain")
+        return Response("\n".join(f"{t}  {l}" for _e, t, l in CONSOLE), mimetype="text/plain")
 
 
 @app.route("/api/blocklist")
@@ -384,4 +408,7 @@ if __name__ == "__main__":
          f"contain={'ON' if CONTAIN else 'off'}  phone={'ntfy:'+NTFY_TOPIC if NTFY_TOPIC else 'off'}  "
          f"known-devices={STATE['known_devices']}")
     threading.Thread(target=live_engine, daemon=True).start()
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+    if BIND == "0.0.0.0":
+        clog("!! dashboard on 0.0.0.0 — reachable by ANYONE on the network, no auth. "
+             "Set DEF_BIND=127.0.0.1 to restrict it.")
+    app.run(host=BIND, port=PORT, threaded=True)

