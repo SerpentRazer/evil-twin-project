@@ -37,7 +37,6 @@ NTFY_URL = os.environ.get("DEF_NTFY_URL", "https://ntfy.sh")
 KNOWN_FILE = os.environ.get("DEF_KNOWN", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                       "known_devices.json"))
 KNOWN = {}    # mac(lower) -> {name, vendor?, ntfy?, contain?}  per-device policy
-ROGUE_STALE = float(os.environ.get("DEF_ROGUE_STALE", "30"))   # drop a rogue not seen on air for this long (attacker moved on)
 
 app = Flask(__name__)
 
@@ -177,8 +176,7 @@ def on_evil_twin(bssid, ssid, channel, crypto, reasons):
         if bssid in EVIL:
             return
         EVIL[bssid] = {"ssid": ssid, "channel": channel, "crypto": crypto,
-                       "reasons": reasons, "ts": time.strftime("%H:%M:%S"),
-                       "last": time.time()}
+                       "reasons": reasons, "ts": time.strftime("%H:%M:%S")}
         BLOCKLIST.add(bssid)
         # NOTE: we deliberately do NOT lock the radio onto this rogue's channel.
         # Pinning blinded the detector to a SECOND impersonation on another
@@ -258,27 +256,6 @@ def broadcast_deauth(iface, bssid, count=8):
         return False
 
 
-def touch_rogue(bssid):
-    """A live rogue keeps beaconing; note we just heard it so it isn't reaped."""
-    e = EVIL.get(bssid)
-    if e is not None:
-        e["last"] = time.time()
-
-
-def reap_stale():
-    """Drop rogues we haven't heard on air for ROGUE_STALE seconds — the attacker
-    tore that twin down (he runs one at a time), so stop deauthing a dead channel
-    and clear it from the dashboard. If he brings it back it is re-detected."""
-    now = time.time()
-    with _lock:
-        dead = [b for b, e in EVIL.items() if now - e.get("last", now) > ROGUE_STALE]
-        for b in dead:
-            EVIL.pop(b, None)
-            BLOCKLIST.discard(b)
-    for b in dead:
-        clog(f"rogue {b} gone (no beacon for {int(ROGUE_STALE)}s) — removed from blocklist", "detect")
-
-
 # ============================================================ LIVE ENGINE ==
 
 def live_engine():
@@ -309,7 +286,6 @@ def live_engine():
                 for b in list(BLOCKLIST):
                     if EVIL.get(b, {}).get("channel") == ch:
                         broadcast_deauth(IFACE, b)
-            reap_stale()                         # forget rogues the attacker tore down
             time.sleep(HOP_DWELL)
     threading.Thread(target=hopper, daemon=True).start()
 
@@ -329,7 +305,6 @@ def live_engine():
         if not bssid or not ssid or ssid not in baseline or bssid in baseline[ssid]:
             return
         if bssid in EVIL:
-            touch_rogue(bssid)                   # still on air -> keep it alive (not reaped)
             return
         rssi = get_rssi(pkt)
         fp = fingerprint(pkt)

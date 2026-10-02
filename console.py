@@ -377,7 +377,6 @@ def blue_start(learn_seconds=0):
                 for b in list(guard.BLOCKLIST):
                     if guard.EVIL.get(b, {}).get("channel") == ch:
                         guard.broadcast_deauth(dif, b)
-            guard.reap_stale()                   # forget rogues the attacker tore down
             time.sleep(HOP_DWELL)
     threading.Thread(target=hopper, daemon=True).start()
 
@@ -413,7 +412,6 @@ def blue_start(learn_seconds=0):
         if not bssid or not ssid or ssid not in baseline or bssid in baseline[ssid]:
             return
         if bssid in guard.EVIL:
-            guard.touch_rogue(bssid)             # still on air -> keep it alive (not reaped)
             return
         rssi = get_rssi(pkt)
         fp = fingerprint(pkt)
