@@ -330,7 +330,7 @@ def blue_start(learn_seconds=0):
         import itertools
         from evil_twin_detect import (load_baseline, save_baseline, _blank_entry,
                                       fingerprint, get_rssi, get_ssid,
-                                      classify_new_bssid, MIN_BEACONS_NEW, CHANNELS)
+                                      classify_new_bssid, MIN_BEACONS_NEW, CHANNELS, HOP_DWELL)
     except Exception as e:
         guard.clog(f"!! cannot start defense: {e}", "detect")
         return False
@@ -369,8 +369,20 @@ def blue_start(learn_seconds=0):
             use = guard.STATE["pinned_channel"] or ch
             subprocess.call(["iw", "dev", dif, "set", "channel", str(use)],
                             stderr=subprocess.DEVNULL)
-            time.sleep(0.8)
+            time.sleep(HOP_DWELL)
     threading.Thread(target=hopper, daemon=True).start()
+
+    # Active containment: while the toggle is on, BROADCAST-deauth every
+    # blocklisted rogue so victims ALREADY associated (sitting on the captive
+    # portal) get kicked too — not only devices caught mid-connect. The detector
+    # pins to the rogue's channel on detection, so these frames land on it.
+    def containment():
+        while not hop_stop.is_set():
+            if guard.STATE.get("contain") and guard.BLOCKLIST:
+                for b in list(guard.BLOCKLIST):
+                    guard.broadcast_deauth(dif, b)
+            time.sleep(1.0)
+    threading.Thread(target=containment, daemon=True).start()
 
     # ---- LEARN handler: merge every beacon's fingerprint + RSSI corridor into
     #      the baseline (same logic as evil_twin_detect.run_learn). ----

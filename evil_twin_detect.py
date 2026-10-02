@@ -83,7 +83,7 @@ def heartbeat_loop():
 INVENTORY_INTERVAL = 3        # seconds between terminal redraw + inventory UDP push
 RED, YELLOW, RESET, BOLD, DIM = "\033[91m", "\033[93m", "\033[0m", "\033[1m", "\033[2m"
 
-MIN_BEACONS_NEW = 3           # new-BSSID candidates need this many sightings before alerting
+MIN_BEACONS_NEW = int(os.environ.get("ET_MIN_BEACONS", "2"))   # sightings before alerting (lower = faster to flag)
 STALE_AFTER = 60              # seconds of silence before dropping a live candidate
 RSSI_CORRIDOR_MARGIN = 15     # dB beyond recorded min/max before flagging a known BSSID
 RSSI_TWIN_LOUDER_MARGIN = 12  # dB a suspected twin must exceed the real AP's peak to corroborate
@@ -104,6 +104,14 @@ def _parse_channels(val, default):
 # the attacker's entire reachable range. Override with ET_CHANNELS="1,6,11" to
 # sweep faster, or add 5 GHz channels here if you ever use a 5 GHz monitor radio.
 CHANNELS = _parse_channels(os.environ.get("ET_CHANNELS"), list(range(1, 14)))
+
+# Seconds parked on each channel while sweeping. 0.4s ≈ 4 beacons/visit (enough
+# for MIN_BEACONS_NEW) and a full 1-13 sweep in ~5s, so a twin is found fast.
+# Lower = faster sweep but fewer beacons/visit; override with ET_HOP_DWELL.
+try:
+    HOP_DWELL = max(0.1, float(os.environ.get("ET_HOP_DWELL", "0.4")))
+except ValueError:
+    HOP_DWELL = 0.4
 
 # ---------------- helpers ----------------
 
@@ -184,7 +192,7 @@ def channel_hopper(iface):
     for ch in itertools.cycle(CHANNELS):
         subprocess.call(["iw", "dev", iface, "set", "channel", str(ch)],
                          stderr=subprocess.DEVNULL)
-        time.sleep(0.8)
+        time.sleep(HOP_DWELL)
 
 # ---------------- LEARN ----------------
 

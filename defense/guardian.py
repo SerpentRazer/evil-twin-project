@@ -229,6 +229,30 @@ def contain(sta, bssid):
         clog(f"CONTAINMENT failed: {e}", "contain")
 
 
+_bcast_logged = {}
+
+
+def broadcast_deauth(iface, bssid, count=8):
+    """Broadcast deauth FROM the rogue AP to ff:ff:ff:ff:ff:ff -> kicks EVERY
+    client off it, including victims already associated (sitting on the captive
+    portal), not just devices caught mid-connect. Driven by the containment loop
+    while the toggle is on; the detector has pinned to the rogue's channel so the
+    frames land on it."""
+    try:
+        from scapy.all import RadioTap, Dot11, Dot11Deauth, sendp
+        pkt = RadioTap()/Dot11(addr1="ff:ff:ff:ff:ff:ff", addr2=bssid, addr3=bssid)/Dot11Deauth(reason=7)
+        sendp(pkt, iface=iface, count=count, inter=0.03, verbose=False)
+        now = time.time()
+        if now - _bcast_logged.get(bssid, 0) > 5:       # throttle: don't spam the console every second
+            _bcast_logged[bssid] = now
+            clog(f"CONTAINMENT: broadcast deauth → all clients on rogue {bssid} "
+                 f"(kicks victims already on the portal)", "contain")
+        return True
+    except Exception as e:
+        clog(f"broadcast deauth failed: {e}", "contain")
+        return False
+
+
 # ============================================================ LIVE ENGINE ==
 
 def live_engine():
@@ -236,7 +260,7 @@ def live_engine():
                            Dot11ReassoReq, RadioTap)
     import itertools
     from evil_twin_detect import (load_baseline, fingerprint, get_rssi, get_ssid,
-                                  classify_new_bssid, MIN_BEACONS_NEW, CHANNELS)
+                                  classify_new_bssid, MIN_BEACONS_NEW, CHANNELS, HOP_DWELL)
 
     baseline = load_baseline()
     STATE["known"] = len(baseline)
@@ -253,8 +277,18 @@ def live_engine():
             use = pin if pin else ch
             subprocess.call(["iw", "dev", IFACE, "set", "channel", str(use)],
                             stderr=subprocess.DEVNULL)
-            time.sleep(0.8)
+            time.sleep(HOP_DWELL)
     threading.Thread(target=hopper, daemon=True).start()
+
+    def containment():
+        # While containment is on, broadcast-deauth every blocklisted rogue so
+        # victims already sitting on the captive portal get kicked too.
+        while True:
+            if STATE.get("contain") and BLOCKLIST:
+                for b in list(BLOCKLIST):
+                    broadcast_deauth(IFACE, b)
+            time.sleep(1.0)
+    threading.Thread(target=containment, daemon=True).start()
 
     def handle(pkt):
         # --- connection attempts toward a blocklisted rogue ---
