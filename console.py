@@ -363,26 +363,22 @@ def blue_start(learn_seconds=0):
     _blue["hop_stop"] = hop_stop
 
     def hopper():
+        # Always sweep every channel — never lock onto one rogue, so a SECOND
+        # impersonation on another channel is still found. When we're on a
+        # blocklisted rogue's own channel and containment is on, broadcast-deauth
+        # it right here (one radio can't camp and sweep at once), which also
+        # kicks victims already sitting on the captive portal.
         for ch in itertools.cycle(CHANNELS):
             if hop_stop.is_set():
                 return
-            use = guard.STATE["pinned_channel"] or ch
-            subprocess.call(["iw", "dev", dif, "set", "channel", str(use)],
+            subprocess.call(["iw", "dev", dif, "set", "channel", str(ch)],
                             stderr=subprocess.DEVNULL)
-            time.sleep(HOP_DWELL)
-    threading.Thread(target=hopper, daemon=True).start()
-
-    # Active containment: while the toggle is on, BROADCAST-deauth every
-    # blocklisted rogue so victims ALREADY associated (sitting on the captive
-    # portal) get kicked too — not only devices caught mid-connect. The detector
-    # pins to the rogue's channel on detection, so these frames land on it.
-    def containment():
-        while not hop_stop.is_set():
             if guard.STATE.get("contain") and guard.BLOCKLIST:
                 for b in list(guard.BLOCKLIST):
-                    guard.broadcast_deauth(dif, b)
-            time.sleep(1.0)
-    threading.Thread(target=containment, daemon=True).start()
+                    if guard.EVIL.get(b, {}).get("channel") == ch:
+                        guard.broadcast_deauth(dif, b)
+            time.sleep(HOP_DWELL)
+    threading.Thread(target=hopper, daemon=True).start()
 
     # ---- LEARN handler: merge every beacon's fingerprint + RSSI corridor into
     #      the baseline (same logic as evil_twin_detect.run_learn). ----

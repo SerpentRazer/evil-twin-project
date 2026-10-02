@@ -178,7 +178,10 @@ def on_evil_twin(bssid, ssid, channel, crypto, reasons):
         EVIL[bssid] = {"ssid": ssid, "channel": channel, "crypto": crypto,
                        "reasons": reasons, "ts": time.strftime("%H:%M:%S")}
         BLOCKLIST.add(bssid)
-        STATE["pinned_channel"] = channel        # lock onto the rogue's channel
+        # NOTE: we deliberately do NOT lock the radio onto this rogue's channel.
+        # Pinning blinded the detector to a SECOND impersonation on another
+        # channel. Keep sweeping; containment deauths each rogue as we pass its
+        # channel (see the hopper). pinned_channel stays unused (single radio).
     clog(f"EVIL TWIN DETECTED: \"{ssid}\" {bssid} ch{channel} "
          f"{','.join(crypto or ['OPEN'])} → BLOCKLISTED", "detect")
     for r in (reasons or []):
@@ -272,23 +275,19 @@ def live_engine():
     candidates, cand_rssi = {}, {}
 
     def hopper():
+        # Always sweep every channel — never lock onto one rogue, so a SECOND
+        # impersonation on another channel is still found. When we're on a
+        # blocklisted rogue's own channel and containment is on, broadcast-deauth
+        # it right here (one radio can't camp and sweep at once).
         for ch in itertools.cycle(CHANNELS):
-            pin = STATE["pinned_channel"]
-            use = pin if pin else ch
-            subprocess.call(["iw", "dev", IFACE, "set", "channel", str(use)],
+            subprocess.call(["iw", "dev", IFACE, "set", "channel", str(ch)],
                             stderr=subprocess.DEVNULL)
-            time.sleep(HOP_DWELL)
-    threading.Thread(target=hopper, daemon=True).start()
-
-    def containment():
-        # While containment is on, broadcast-deauth every blocklisted rogue so
-        # victims already sitting on the captive portal get kicked too.
-        while True:
             if STATE.get("contain") and BLOCKLIST:
                 for b in list(BLOCKLIST):
-                    broadcast_deauth(IFACE, b)
-            time.sleep(1.0)
-    threading.Thread(target=containment, daemon=True).start()
+                    if EVIL.get(b, {}).get("channel") == ch:
+                        broadcast_deauth(IFACE, b)
+            time.sleep(HOP_DWELL)
+    threading.Thread(target=hopper, daemon=True).start()
 
     def handle(pkt):
         # --- connection attempts toward a blocklisted rogue ---
