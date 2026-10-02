@@ -698,6 +698,10 @@ def _ai_attach(evil):
             e["ai"] = {"status": "queued"}
         else:
             e["ai"] = _ai_slim(r)
+            if r.get("status") == "complete":
+                _ai["online"] = True            # self-correct the live status from real usage
+            elif r.get("status") == "unavailable":
+                _ai["online"] = False
 
 
 def _ai_brief():
@@ -1053,6 +1057,7 @@ def api_ai_chat():
                 messages.append({"role": t["role"], "content": t["content"][:1500]})
     messages.append({"role": "user", "content": msg[:2000]})
     text, model = ai.chat(messages, num_predict=400, temperature=0.6)
+    _ai["online"] = bool(text)                  # self-correct live status from this call
     if not text:
         return _jr({"ok": False, "error": "AI unavailable (Ollama/Tailscale down?)"})
     return _jr({"ok": True, "reply": text, "model": model})
@@ -1090,6 +1095,7 @@ def api_ai_report():
         messages = [{"role": "system", "content": sys_prompt},
                     {"role": "user", "content": "VERIFIED FACTS:\n" + facts_text}]
         analysis, model = ai.chat(messages, num_predict=400, temperature=0.2)
+        _ai["online"] = bool(analysis)          # self-correct live status from this call
     report = facts_text + (("\n\nANALYSIS\n" + analysis) if analysis else "")
     return _jr({"ok": True, "facts": facts_out, "analysis": analysis,
                 "model": model, "report": report})

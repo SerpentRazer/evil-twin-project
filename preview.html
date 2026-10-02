@@ -108,6 +108,7 @@
   .dot.cyan{background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
   .dot.ai{background:var(--ai);box-shadow:0 0 10px var(--ai)}
   .dot.green{background:var(--green);box-shadow:0 0 10px var(--green)}
+  .dot.amber{background:var(--amber);box-shadow:0 0 10px var(--amber)}
   .dot.on{animation:pulse 1.4s infinite}
 
   /* ---------------- buttons / inputs ---------------- */
@@ -333,8 +334,9 @@
     <div class="card">
       <h2>defense</h2>
       <div class="row">
-        <button class="act go" id="blue-start" onclick="act('blue_start')">start defense</button>
+        <button class="act go" id="blue-start" onclick="startDefense()">start defense</button>
         <button class="act stop" id="blue-stop" onclick="act('blue_stop')">stop defense</button>
+        <label class="sw" title="learn the real networks first (attacker OFF), then guard — 0 = use existing baseline">learn <input type="number" id="blue-learn" min="0" max="300" value="45" style="width:54px"> s then guard</label>
         <label class="sw"><input type="checkbox" id="contain" onchange="toggleContain()"> active containment (deauth rogue links)</label>
         <span class="pill" id="blue-known"></span>
       </div>
@@ -436,7 +438,7 @@
         <label class="sw"><input type="checkbox" id="ai-grounded" checked> use live situation as context</label>
         <span class="mini">off = raw model (dev test)</span>
       </div>
-      <div class="chatlog" id="ai-chatlog"><div class="empty">Ask the analyst — e.g. "why was PRV_GUEST flagged?" or "what should I do right now?"</div></div>
+      <div class="chatlog" id="ai-chatlog"><div class="empty">Ask the analyst, e.g. "why was this network flagged?" or "what should I do right now?"</div></div>
       <div class="chatinput">
         <input type="text" id="ai-chatin" placeholder="ask the analyst…" onkeydown="if(event.key==='Enter')aiChat()">
         <button class="act go" onclick="aiChat()">send</button>
@@ -634,6 +636,7 @@ async function act(action, extra={}) {
   } finally { restore(); }
   refresh();
 }
+function startDefense(){ const n=Math.max(0,parseInt($("blue-learn").value||"0",10)||0); act("blue_start",{learn_seconds:n}); }
 function toggleContain(){ act("blue_toggle", {contain: $("contain").checked}); }
 async function wipeCaptures(){ await fetch("/api/captures/wipe",{method:"POST"}); loadCaptures(); }
 
@@ -682,7 +685,12 @@ async function refresh(){
     : `<tr><td colspan="6" class="empty">no scan yet</td></tr>`;
 
   // BLUE
-  $("blue-known").textContent = s.blue.known ? `guarding ${s.blue.known} known networks` : "";
+  const _bphase = s.blue.phase || "off";
+  if (_bphase === "learning") {
+    $("blue-known").textContent = `⏳ LEARNING — keep the ATTACKER OFF — ${s.blue.learn_remaining||0}s`;
+  } else {
+    $("blue-known").textContent = s.blue.known ? `guarding ${s.blue.known} known networks` : "";
+  }
   $("contain").checked = !!s.blue.contain;
 
   // live button states — clear feedback, and blocks invalid/double clicks (no functional change)
@@ -693,7 +701,9 @@ async function refresh(){
   setBtn("b-scan",  _scanning||_airbase||pScan, (_scanning||pScan)?"scanning…":"enable monitor & scan");
   setBtn("b-launch", !_hasTgt||_airbase||_scanning||pLaunch, _airbase?"twin live":(pLaunch?"launching…":"launch evil twin"));
   setBtn("b-stop",  !(_airbase||_portal||_scanning)&&!pStop, pStop?"stopping…":"stop all");
-  setBtn("blue-start", _defRun||pBs, _defRun?"defense running":(pBs?"starting…":"start defense"));
+  setBtn("blue-start", _defRun||pBs,
+         _bphase==="learning" ? `learning… ${s.blue.learn_remaining||0}s`
+         : _defRun ? "defense running" : (pBs?"starting…":"start defense"));
   setBtn("blue-stop", !_defRun&&!pBx, pBx?"stopping…":"stop defense");
   const rg = s.blue.evil||[];
   $("rogueN").textContent = rg.length ? `(${rg.length})` : "";
@@ -843,7 +853,7 @@ function refreshOverview(s){
   const enBox=$("ai-en"); if(enBox && document.activeElement!==enBox) enBox.checked=en;
   const mSel=$("ai-model"); if(mSel && document.activeElement!==mSel && ai.model &&
       [...mSel.options].some(o=>o.value===ai.model)) mSel.value=ai.model;
-  const d=$("ai-dot"); if(d) d.className="dot nb-dot"+(!en?"":online?" ai on":" ai");
+  const d=$("ai-dot"); if(d) d.className="dot nb-dot"+(!en?"":online?" green on":" amber");
   const stat=$("ai-stat");
   if(stat) stat.textContent = !en?"— disabled —":online?"— online —":"— offline —";
 }
@@ -864,10 +874,10 @@ async function aiTest(){
   try{ const r=await (await fetch("/api/ai/health")).json();
     if(r && r.ok){ $("ai-note").innerHTML='<b style="color:var(--green)">endpoint LIVE</b> at '+esc(r.url||'')
         +(r.models&&r.models.length?' · '+r.models.length+' model(s) available':' (no models pulled)');
-      const d=$("ai-dot"); if(d) d.className="dot nb-dot ai on"; const st=$("ai-stat"); if(st) st.textContent="— online —";
+      const d=$("ai-dot"); if(d) d.className="dot nb-dot green on"; const st=$("ai-stat"); if(st) st.textContent="— online —";
     } else { $("ai-note").innerHTML='<b style="color:var(--red)">unreachable</b>'+(r&&r.url?' at '+esc(r.url):'')
         +(r&&r.error?' — '+esc(String(r.error)):'');
-      const d=$("ai-dot"); if(d) d.className="dot nb-dot ai"; const st=$("ai-stat"); if(st) st.textContent="— offline —"; }
+      const d=$("ai-dot"); if(d) d.className="dot nb-dot amber"; const st=$("ai-stat"); if(st) st.textContent="— offline —"; }
   }catch(e){ $("ai-note").textContent="test failed (is the live console running?)"; }
 }
 // ---- AI verdict badge (compact; reused in the Blue list + overview) ----
