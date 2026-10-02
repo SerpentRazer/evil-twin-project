@@ -275,10 +275,6 @@
         <div id="ov-logtail" class="mono" style="font:12px/1.55 var(--mono);white-space:pre-wrap;max-height:120px;overflow:auto;color:#a9c0d6">—</div>
       </div>
     </div>
-    <div class="card">
-      <h2>AI analyst — latest read</h2>
-      <div id="ov-ai"><div class="empty">No AI verdicts yet.</div></div>
-    </div>
   </section>
 
   <!-- RED -->
@@ -680,9 +676,6 @@ function refreshOverview(s){
   const pv=$("pv-status"); if(pv) pv.textContent = (s.red&&s.red.portal) ? "· portal ARMED — serving now" : "· preview (portal not currently serving)";
 
   const withAi=(b.evil||[]).filter(e=>e.ai);
-  $("ov-ai").innerHTML = withAi.length ? withAi.slice(0,2).map(aiVerdictHtml).join("")
-    : (b.evil||[]).length ? `<div class="empty">waiting for the AI verdict…</div>`
-    : `<div class="empty">No detections yet.</div>`;
   const list=$("ai-list");
   if(list) list.innerHTML = withAi.length ? withAi.map(aiVerdictHtml).join("")
     : `<div class="empty">no detections yet, verdicts appear here when the blue team flags a rogue.</div>`;
