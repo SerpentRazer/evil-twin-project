@@ -71,7 +71,7 @@ TAILNET_IP = _tailnet_ip()
 ENV_ATTACK = os.environ.get("CON_ATTACK_IFACE")
 ENV_DEFENSE = os.environ.get("CON_DEFENSE_IFACE")
 LEGACY_IFACE = os.environ.get("CON_IFACE")          # force all roles onto one radio
-LEARN_ON_START = int(os.environ.get("CON_LEARN_SECONDS", "45"))  # Learn→Guard: default baseline-learn seconds at defense start (0 = skip, use existing baseline)
+LEARN_ON_START = int(os.environ.get("CON_LEARN_SECONDS", "0"))  # 0 = NO learn on start (use existing baseline); set CON_LEARN_SECONDS=45 to relearn a new venue with the attacker OFF
 
 # Injection/AP quality by driver — used only to order the NON-Atheros adapters
 # when picking ATTACK (the Atheros is pinned to DEFENSE by policy in
@@ -443,13 +443,9 @@ def blue_start(learn_seconds=0):
         classified.add(bssid)
         if verdict == "evil":
             guard.on_evil_twin(bssid, ssid, fp.get("channel"), fp.get("crypto"), reasons)
-        elif verdict == "benign":
-            # same operator's hardware the learn missed — fold into the baseline so
-            # the beacon guard above short-circuits it (matches evil_twin_detect.run_watch).
-            baseline[ssid][bssid] = {**_blank_entry(),
-                                     **{k: fp.get(k) for k in ("channel", "crypto", "rates", "ht")}}
-            if rssi is not None:
-                baseline[ssid][bssid]["rssi_min"] = baseline[ssid][bssid]["rssi_max"] = rssi
+        # benign/review: remembered in `classified` so we don't re-score it, but we
+        # do NOT fold it into the baseline — NO learning during watch, so a live twin
+        # can never be absorbed as legit (baseline only grows via an explicit learn).
 
     def start_watch():
         """Flip from learning to guarding: open the watch sniffer, then warm the LLM."""

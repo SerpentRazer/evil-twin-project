@@ -334,13 +334,9 @@ def live_engine():
         classified.add(bssid)
         if verdict == "evil":
             on_evil_twin(bssid, ssid, fp.get("channel"), fp.get("crypto"), reasons)
-        elif verdict == "benign":
-            # same operator's hardware the learn missed — fold into the baseline so
-            # the beacon guard above short-circuits it (matches evil_twin_detect.run_watch).
-            baseline[ssid][bssid] = {**_blank_entry(),
-                                     **{k: fp.get(k) for k in ("channel", "crypto", "rates", "ht")}}
-            if rssi is not None:
-                baseline[ssid][bssid]["rssi_min"] = baseline[ssid][bssid]["rssi_max"] = rssi
+        # benign/review: remembered in `classified` so we don't re-score it, but we
+        # do NOT fold it into the baseline — NO learning during watch, so a live twin
+        # can never be absorbed as legit (baseline only grows via an explicit learn).
 
     sniff(iface=IFACE, prn=handle, store=False)
 

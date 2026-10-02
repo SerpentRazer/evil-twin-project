@@ -247,6 +247,17 @@ def run_learn(duration):
 
 # ---------------- WATCH ----------------
 
+_OPEN_MARKERS = {"", "OPN", "OPEN", "OPN/OPEN"}
+
+def is_open(crypto):
+    """True if this crypto means 'no security'. scapy reports an OPEN network as
+    ['OPN'] (a non-empty list), not []. Plain truthiness (`not crypto`) misread
+    that as 'secured', which silently broke the WPA2->Open downgrade signal — the
+    strongest evil-twin tell. Treat empty AND the OPN/OPEN markers as open."""
+    if not crypto:
+        return True
+    return all(str(c).strip().upper() in _OPEN_MARKERS for c in crypto)
+
 def network_profile(known):
     """Summarize a known SSID's real infrastructure from the baseline:
     trusted vendor OUIs, per-radio base-MAC prefixes, whether it is secured on
@@ -257,7 +268,7 @@ def network_profile(known):
         have_bssid = True
         ouis.add(mac_prefix(b, 3))
         base5.add(mac_prefix(b, 5))
-        if not e.get("crypto"):
+        if is_open(e.get("crypto")):
             secured_all = False
         if e.get("rssi_max") is not None:
             peak = e["rssi_max"] if peak is None else max(peak, e["rssi_max"])
@@ -280,7 +291,7 @@ def classify_new_bssid(bssid, rssi, fp, known):
     same_radio = mac_prefix(bssid, 5) in prof["base5"]   # same physical radio
     same_oui   = mac_prefix(bssid, 3) in prof["ouis"]    # same vendor infra
     laa        = is_locally_administered(bssid)
-    downgrade  = prof["secured"] and not new_crypto      # secured net, OPEN twin
+    downgrade  = prof["secured"] and is_open(new_crypto)  # secured net, OPEN twin (handles scapy's ['OPN'])
     louder = (rssi is not None and prof["peak"] is not None
               and rssi > prof["peak"] + RSSI_TWIN_LOUDER_MARGIN)
 
