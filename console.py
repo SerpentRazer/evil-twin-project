@@ -330,7 +330,7 @@ def blue_start(learn_seconds=0):
         import itertools
         from evil_twin_detect import (load_baseline, save_baseline, _blank_entry,
                                       fingerprint, get_rssi, get_ssid,
-                                      classify_new_bssid, MIN_BEACONS_NEW)
+                                      classify_new_bssid, MIN_BEACONS_NEW, CHANNELS)
     except Exception as e:
         guard.clog(f"!! cannot start defense: {e}", "detect")
         return False
@@ -363,7 +363,7 @@ def blue_start(learn_seconds=0):
     _blue["hop_stop"] = hop_stop
 
     def hopper():
-        for ch in itertools.cycle([1, 6, 11]):
+        for ch in itertools.cycle(CHANNELS):
             if hop_stop.is_set():
                 return
             use = guard.STATE["pinned_channel"] or ch

@@ -236,7 +236,7 @@ def live_engine():
                            Dot11ReassoReq, RadioTap)
     import itertools
     from evil_twin_detect import (load_baseline, fingerprint, get_rssi, get_ssid,
-                                  classify_new_bssid, MIN_BEACONS_NEW)
+                                  classify_new_bssid, MIN_BEACONS_NEW, CHANNELS)
 
     baseline = load_baseline()
     STATE["known"] = len(baseline)
@@ -248,7 +248,7 @@ def live_engine():
     candidates, cand_rssi = {}, {}
 
     def hopper():
-        for ch in itertools.cycle([1, 6, 11]):
+        for ch in itertools.cycle(CHANNELS):
             pin = STATE["pinned_channel"]
             use = pin if pin else ch
             subprocess.call(["iw", "dev", IFACE, "set", "channel", str(use)],

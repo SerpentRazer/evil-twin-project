@@ -92,6 +92,19 @@ DEAUTH_THRESHOLD = 10         # deauth frames within window from one source = fl
 PROBE_SSID_THRESHOLD = 4      # distinct SSIDs one BSSID answers for = promiscuous/karma
 PROBE_WINDOW = 30            # seconds to accumulate distinct probe-response SSIDs
 
+
+def _parse_channels(val, default):
+    chans = [int(c) for c in (val or "").split(",") if c.strip().isdigit()]
+    return chans or default
+
+# 2.4 GHz channels to hop while watching/learning. Default = the WHOLE band
+# (1-13), so a twin is caught whatever channel the attacker's AP sits on — not
+# just the 1/6/11 non-overlapping set (airbase-ng can be on any channel). Both
+# the AR9271 (attack) and AWUS036NHR (defense) are 2.4 GHz-only, so this covers
+# the attacker's entire reachable range. Override with ET_CHANNELS="1,6,11" to
+# sweep faster, or add 5 GHz channels here if you ever use a 5 GHz monitor radio.
+CHANNELS = _parse_channels(os.environ.get("ET_CHANNELS"), list(range(1, 14)))
+
 # ---------------- helpers ----------------
 
 def mac_prefix(bssid, n):
@@ -168,7 +181,7 @@ def save_baseline(baseline):
         json.dump(baseline, f, indent=2)
 
 def channel_hopper(iface):
-    for ch in itertools.cycle([1, 6, 11]):
+    for ch in itertools.cycle(CHANNELS):
         subprocess.call(["iw", "dev", iface, "set", "channel", str(ch)],
                          stderr=subprocess.DEVNULL)
         time.sleep(0.8)
